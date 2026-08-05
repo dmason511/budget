@@ -15,13 +15,19 @@
           <a class="nav-link" href="/categories">Categories</a>
           <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
           <a class="nav-link active" href="/reports">Reports</a>
-                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
         </nav>
       </div>
     </header>
 
     <main class="layout">
-      <h1>Budget vs Actual Data</h1>
+      <h1>Budget vs Actual Expense Data</h1>
       <p class="sub" id="reportLabel">
         Tabular budget, actual, and variance totals by category using monthly
         category budgets.
@@ -513,6 +519,6 @@
 
       withStatus(initialize);
     </script>
-      <script src="/auth-client.js"></script>
+    <script src="/auth-client.js"></script>
   </body>
 </html>
