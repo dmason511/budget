@@ -17,7 +17,13 @@ function parseAmount(value) {
   return Number.isFinite(amount) ? amount : null;
 }
 
-function normalizeDateToZulu(value) {
+function getCurrentLocalDateValue() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+}
+
+function normalizeDateValue(value) {
   const result = {
     value: null,
     invalid: false,
@@ -38,13 +44,7 @@ function normalizeDateToZulu(value) {
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const localMidnight = new Date(`${trimmed}T00:00:00`);
-    if (Number.isNaN(localMidnight.getTime())) {
-      result.invalid = true;
-      return result;
-    }
-
-    result.value = localMidnight.toISOString();
+    result.value = trimmed;
     return result;
   }
 
@@ -54,7 +54,8 @@ function normalizeDateToZulu(value) {
     return result;
   }
 
-  result.value = parsed.toISOString();
+  parsed.setMinutes(parsed.getMinutes() - parsed.getTimezoneOffset());
+  result.value = parsed.toISOString().slice(0, 10);
   return result;
 }
 
@@ -93,9 +94,9 @@ function validatePayload(body) {
   }
 
   if (body.date !== undefined) {
-    const normalizedDate = normalizeDateToZulu(body.date);
+    const normalizedDate = normalizeDateValue(body.date);
     if (normalizedDate.invalid) {
-      return "date must be a valid ISO date/time or YYYY-MM-DD";
+      return "date must be a valid date";
     }
   }
 
@@ -152,8 +153,7 @@ router.post("/", async (req, res, next) => {
       return res.status(400).json({ error: validationError });
     }
 
-    const now = new Date().toISOString();
-    const normalizedDate = normalizeDateToZulu(req.body?.date);
+    const normalizedDate = normalizeDateValue(req.body?.date);
     const transaction = {
       id: randomUUID(),
       description:
@@ -162,8 +162,8 @@ router.post("/", async (req, res, next) => {
           : "",
       amount: Number(req.body.amount),
       category: req.body.category ? req.body.category.trim() : "uncategorized",
-      date: normalizedDate.value || now,
-      createdAt: now,
+      date: normalizedDate.value || getCurrentLocalDateValue(),
+      createdAt: new Date().toISOString(),
       updatedAt: null,
     };
 
@@ -224,7 +224,7 @@ router.put("/:id", async (req, res, next) => {
           : "",
       amount: Number(req.body.amount),
       category: req.body.category ? req.body.category.trim() : "uncategorized",
-      date: normalizeDateToZulu(req.body?.date).value || existing.date,
+      date: normalizeDateValue(req.body?.date).value || existing.date,
       createdAt: existing.created_at,
       updatedAt: new Date().toISOString(),
     };

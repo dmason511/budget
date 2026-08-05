@@ -53,17 +53,22 @@ function getBudgetPeriodMultiplier(month) {
   return month === undefined ? 12 : 1;
 }
 
+function normalizedTransactionDateSql(columnExpression) {
+  return `(CASE WHEN length(${columnExpression}) = 10 THEN ${columnExpression} ELSE date(${columnExpression}, 'localtime') END)`;
+}
+
 router.get("/available-periods", async (_req, res, next) => {
   try {
+    const transactionDateSql = normalizedTransactionDateSql("date");
     const rows = await all(
       `
       SELECT DISTINCT
-        CAST(strftime('%Y', date) AS INTEGER) AS year,
-        CAST(strftime('%m', date) AS INTEGER) AS month
+        CAST(strftime('%Y', ${transactionDateSql}) AS INTEGER) AS year,
+        CAST(strftime('%m', ${transactionDateSql}) AS INTEGER) AS month
       FROM transactions
       WHERE date IS NOT NULL
-        AND strftime('%Y', date) IS NOT NULL
-        AND strftime('%m', date) IS NOT NULL
+        AND strftime('%Y', ${transactionDateSql}) IS NOT NULL
+        AND strftime('%m', ${transactionDateSql}) IS NOT NULL
       ORDER BY year DESC, month ASC
       `,
     );
@@ -113,10 +118,10 @@ router.get("/category-expenses", async (req, res, next) => {
     }
 
     const { startIso, endIso } = getPeriodRange(year, month);
+    const transactionDateSql = normalizedTransactionDateSql("t.date");
 
     const params = [startIso, endIso];
-    const whereSql =
-      "WHERE julianday(t.date) >= julianday(?) AND julianday(t.date) < julianday(?)";
+    const whereSql = `WHERE julianday(${transactionDateSql}) >= julianday(?) AND julianday(${transactionDateSql}) < julianday(?)`;
 
     const rows = await all(
       `
@@ -159,7 +164,7 @@ router.get("/category-expenses", async (req, res, next) => {
       ), 0), 2) AS balance
       FROM transactions t
       LEFT JOIN categories c ON c.name = t.category
-      WHERE julianday(t.date) < julianday(?)
+      WHERE julianday(${transactionDateSql}) < julianday(?)
       `,
       [startIso],
     );
@@ -174,8 +179,8 @@ router.get("/category-expenses", async (req, res, next) => {
       ), 0), 2) AS balance
       FROM transactions t
       LEFT JOIN categories c ON c.name = t.category
-      WHERE julianday(t.date) >= julianday(?)
-        AND julianday(t.date) < julianday(?)
+      WHERE julianday(${transactionDateSql}) >= julianday(?)
+        AND julianday(${transactionDateSql}) < julianday(?)
       `,
       [startIso, endIso],
     );
@@ -221,7 +226,7 @@ router.get("/category-monthly", async (req, res, next) => {
       `
       SELECT
         t.category AS category,
-        CAST(strftime('%m', t.date) AS INTEGER) AS month,
+        CAST(strftime('%m', ${normalizedTransactionDateSql("t.date")}) AS INTEGER) AS month,
         ROUND(
           SUM(
             CASE
@@ -233,8 +238,8 @@ router.get("/category-monthly", async (req, res, next) => {
         ) AS total_amount
       FROM transactions t
       LEFT JOIN categories c ON c.name = t.category
-      WHERE strftime('%Y', t.date) = ?
-      GROUP BY t.category, CAST(strftime('%m', t.date) AS INTEGER)
+      WHERE strftime('%Y', ${normalizedTransactionDateSql("t.date")}) = ?
+      GROUP BY t.category, CAST(strftime('%m', ${normalizedTransactionDateSql("t.date")}) AS INTEGER)
       ORDER BY t.category COLLATE NOCASE ASC, month ASC
       `,
       [String(year)],
@@ -316,6 +321,7 @@ router.get("/category-budget-comparison", async (req, res, next) => {
     }
 
     const { startIso, endIso } = getPeriodRange(year, month);
+    const transactionDateSql = normalizedTransactionDateSql("t.date");
     const budgetMultiplier = getBudgetPeriodMultiplier(month);
 
     const rows = await all(
@@ -326,8 +332,8 @@ router.get("/category-budget-comparison", async (req, res, next) => {
           ROUND(SUM(ABS(t.amount)), 2) AS actual_amount,
           COUNT(*) AS transaction_count
         FROM transactions t
-        WHERE julianday(t.date) >= julianday(?)
-          AND julianday(t.date) < julianday(?)
+        WHERE julianday(${transactionDateSql}) >= julianday(?)
+          AND julianday(${transactionDateSql}) < julianday(?)
         GROUP BY t.category
       ),
       comparison_rows AS (
