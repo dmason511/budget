@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget User Admin</title>
+    <link rel="stylesheet" href="/common.css" />
+    <style>
+      .admin-users-grid {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .password-hint {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .small-cell {
+        white-space: nowrap;
+      }
+
+      .row-inline-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .inline-select,
+      .inline-input {
+        width: auto;
+        min-width: 9ch;
+        margin-top: 0;
+        padding: 7px 10px;
+        border-radius: 999px;
+      }
+
+      .inline-checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        font-size: 0.85rem;
+      }
+
+      .inline-checkbox input {
+        width: auto;
+        margin: 0;
+      }
+
+      .inline-button {
+        border-radius: 999px;
+        padding: 7px 10px;
+        font-size: 0.8rem;
+      }
+
+      .inline-button.secondary {
+        background: #e5eef6;
+        color: #0f172a;
+      }
+
+      .inline-button.danger {
+        background: #fff1f2;
+        color: #9f1239;
+      }
+
+      .self-note {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link active" href="/admin" data-admin-only>Admin</a>
+          <a class="nav-link" href="/reports">Reports</a>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Admin: User Access</h1>
+      <p class="sub">
+        Create users, assign tenant and role, disable or enable accounts, and
+        reset passwords.
+      </p>
+
+      <section class="card">
+        <div class="actions" style="margin-top: 0">
+          <a class="button-link secondary-link" href="/admin">Admin Home</a>
+        </div>
+
+        <div class="admin-users-grid">
+          <label>
+            Username
+            <input id="newUsername" type="text" autocomplete="off" />
+          </label>
+
+          <label>
+            Password
+            <input
+              id="newPassword"
+              type="password"
+              autocomplete="new-password"
+            />
+            <small class="password-hint">Minimum 8 characters</small>
+          </label>
+
+          <label>
+            Tenant
+            <input id="newTenantId" type="text" list="tenantList" />
+            <datalist id="tenantList"></datalist>
+          </label>
+
+          <label>
+            Role
+            <select id="newRole">
+              <option value="user" selected>User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="createUserBtn" type="button">Create User</button>
+          <button id="refreshUsersBtn" type="button" class="secondary">
+            Refresh Users
+          </button>
+        </div>
+
+        <div class="status" id="usersStatus"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Tenant</th>
+              <th>Role</th>
+              <th>Active</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
+
+        <h3 style="margin-top: 18px">Change My Password</h3>
+        <div class="admin-users-grid">
+          <label>
+            Current Password
+            <input
+              id="currentPassword"
+              type="password"
+              autocomplete="current-password"
+            />
+          </label>
+          <label>
+            New Password
+            <input
+              id="nextPassword"
+              type="password"
+              autocomplete="new-password"
+            />
+            <small class="password-hint">Minimum 8 characters</small>
+          </label>
+        </div>
+        <div class="actions">
+          <button id="changeMyPasswordBtn" type="button" class="secondary">
+            Change My Password
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const newUsernameInput = document.getElementById("newUsername");
+      const newPasswordInput = document.getElementById("newPassword");
+      const newTenantIdInput = document.getElementById("newTenantId");
+      const newRoleSelect = document.getElementById("newRole");
+      const tenantList = document.getElementById("tenantList");
+      const createUserBtn = document.getElementById("createUserBtn");
+      const refreshUsersBtn = document.getElementById("refreshUsersBtn");
+      const usersStatus = document.getElementById("usersStatus");
+      const usersTableBody = document.getElementById("usersTableBody");
+      const currentPasswordInput = document.getElementById("currentPassword");
+      const nextPasswordInput = document.getElementById("nextPassword");
+      const changeMyPasswordBtn = document.getElementById(
+        "changeMyPasswordBtn",
+      );
+
+      function setUsersStatus(message, isError = false) {
+        usersStatus.textContent = message;
+        usersStatus.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatDate(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return "-";
+        }
+
+        return date.toLocaleString();
+      }
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      let currentUserId = null;
+
+      function roleOptionsMarkup(selectedRole) {
+        const normalized = String(selectedRole || "user").toLowerCase();
+        return ["user", "admin"]
+          .map((role) => {
+            const selected = role === normalized ? " selected" : "";
+            const label = role === "admin" ? "Admin" : "User";
+            return `<option value="${role}"${selected}>${label}</option>`;
+          })
+          .join("");
+      }
+
+      function renderUsers(users) {
+        if (!Array.isArray(users) || !users.length) {
+          usersTableBody.innerHTML =
+            '<tr><td colspan="6" class="small-cell">No users found.</td></tr>';
+          return;
+        }
+
+        usersTableBody.innerHTML = users
+          .map(
+            (user) => `
+              <tr>
+                <td>${escapeHtml(user.username)}</td>
+                <td>
+                  <input class="inline-input" data-tenant-input data-user-id="${escapeHtml(user.id)}" value="${escapeHtml(user.tenantId)}" />
+                </td>
+                <td>
+                  <select class="inline-select" data-role-select data-user-id="${escapeHtml(user.id)}">
+                    ${roleOptionsMarkup(user.role)}
+                  </select>
+                </td>
+                <td>
+                  <label class="inline-checkbox">
+                    <input type="checkbox" data-active-checkbox data-user-id="${escapeHtml(user.id)}" ${user.isActive ? "checked" : ""} />
+                    ${user.isActive ? "Enabled" : "Disabled"}
+                  </label>
+                </td>
+                <td class="small-cell">${escapeHtml(formatDate(user.createdAt))}</td>
+                <td>
+                  <div class="row-inline-controls">
+                    <button type="button" class="inline-button secondary" data-save-access data-user-id="${escapeHtml(user.id)}">Save</button>
+                    <button type="button" class="inline-button danger" data-reset-password data-user-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}">Reset Password</button>
+                    ${user.id === currentUserId ? '<span class="self-note">Current user</span>' : ""}
+                  </div>
+                </td>
+              </tr>
+            `,
+          )
+          .join("");
+
+        wireRowActions();
+      }
+
+      function renderTenants(tenantIds) {
+        tenantList.innerHTML = "";
+
+        for (const tenantId of tenantIds || []) {
+          const option = document.createElement("option");
+          option.value = String(tenantId);
+          tenantList.appendChild(option);
+        }
+
+        if (!newTenantIdInput.value.trim()) {
+          newTenantIdInput.value = "default";
+        }
+      }
+
+      async function fetchJson(url, options = undefined) {
+        const response = await fetch(url, options);
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const message =
+            payload?.error || `Request failed (${response.status})`;
+          throw new Error(message);
+        }
+
+        return payload;
+      }
+
+      async function loadCurrentUser() {
+        const mePayload = await fetchJson("/api/auth/me");
+        currentUserId = mePayload?.data?.id || null;
+      }
+
+      async function loadUsers() {
+        await loadCurrentUser();
+        const usersPayload = await fetchJson("/api/admin/users");
+        const tenantsPayload = await fetchJson("/api/admin/tenants");
+
+        renderUsers(usersPayload.data || []);
+        renderTenants(tenantsPayload.data || []);
+      }
+
+      async function saveUserAccess(userId) {
+        const tenantInput = document.querySelector(
+          `[data-tenant-input][data-user-id="${userId}"]`,
+        );
+        const roleSelect = document.querySelector(
+          `[data-role-select][data-user-id="${userId}"]`,
+        );
+        const activeCheckbox = document.querySelector(
+          `[data-active-checkbox][data-user-id="${userId}"]`,
+        );
+
+        if (!tenantInput || !roleSelect || !activeCheckbox) {
+          return;
+        }
+
+        const payload = {
+          tenantId: tenantInput.value.trim() || "default",
+          role: roleSelect.value,
+          isActive: activeCheckbox.checked,
+        };
+
+        await fetchJson(`/api/admin/users/${encodeURIComponent(userId)}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        await loadUsers();
+        setUsersStatus("User access updated.");
+      }
+
+      async function resetPassword(userId, username) {
+        const newPassword = window.prompt(
+          `Enter a new password for ${username} (minimum 8 characters):`,
+        );
+
+        if (newPassword === null) {
+          return;
+        }
+
+        const trimmedPassword = newPassword.trim();
+        if (trimmedPassword.length < 8) {
+          setUsersStatus("Password must be at least 8 characters.", true);
+          return;
+        }
+
+        await fetchJson(
+          `/api/admin/users/${encodeURIComponent(userId)}/password`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ newPassword: trimmedPassword }),
+          },
+        );
+
+        setUsersStatus(`Password reset for ${username}.`);
+      }
+
+      function wireRowActions() {
+        const saveButtons = document.querySelectorAll("[data-save-access]");
+        const resetButtons = document.querySelectorAll("[data-reset-password]");
+
+        saveButtons.forEach((button) => {
+          button.addEventListener("click", async () => {
+            const userId = button.dataset.userId;
+            if (!userId) {
+              return;
+            }
+
+            button.disabled = true;
+            try {
+              await saveUserAccess(userId);
+            } catch (error) {
+              console.error("Failed to update user access", error);
+              setUsersStatus(
+                error.message || "Failed to update user access.",
+                true,
+              );
+            } finally {
+              button.disabled = false;
+            }
+          });
+        });
+
+        resetButtons.forEach((button) => {
+          button.addEventListener("click", async () => {
+            const userId = button.dataset.userId;
+            const username = button.dataset.username || "user";
+            if (!userId) {
+              return;
+            }
+
+            button.disabled = true;
+            try {
+              await resetPassword(userId, username);
+            } catch (error) {
+              console.error("Failed to reset password", error);
+              setUsersStatus(
+                error.message || "Failed to reset password.",
+                true,
+              );
+            } finally {
+              button.disabled = false;
+            }
+          });
+        });
+      }
+
+      async function createUser() {
+        const username = newUsernameInput.value.trim();
+        const password = newPasswordInput.value;
+        const tenantId = newTenantIdInput.value.trim() || "default";
+
+        if (!username) {
+          setUsersStatus("Username is required.", true);
+          return;
+        }
+
+        if (password.length < 8) {
+          setUsersStatus("Password must be at least 8 characters.", true);
+          return;
+        }
+
+        createUserBtn.disabled = true;
+
+        try {
+          await fetchJson("/api/admin/users", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              username,
+              password,
+              tenantId,
+              role: newRoleSelect.value,
+            }),
+          });
+
+          newUsernameInput.value = "";
+          newPasswordInput.value = "";
+          newRoleSelect.value = "user";
+
+          await loadUsers();
+          setUsersStatus(`User ${username} created.`);
+        } catch (error) {
+          console.error("Failed to create user", error);
+          setUsersStatus(error.message || "Failed to create user.", true);
+        } finally {
+          createUserBtn.disabled = false;
+        }
+      }
+
+      createUserBtn.addEventListener("click", createUser);
+      refreshUsersBtn.addEventListener("click", async () => {
+        try {
+          setUsersStatus("Refreshing users...");
+          await loadUsers();
+          setUsersStatus("Users refreshed.");
+        } catch (error) {
+          console.error("Failed to refresh users", error);
+          setUsersStatus(error.message || "Failed to refresh users.", true);
+        }
+      });
+
+      changeMyPasswordBtn.addEventListener("click", async () => {
+        const currentPassword = currentPasswordInput.value;
+        const newPassword = nextPasswordInput.value;
+
+        if (newPassword.length < 8) {
+          setUsersStatus("New password must be at least 8 characters.", true);
+          return;
+        }
+
+        changeMyPasswordBtn.disabled = true;
+
+        try {
+          await fetchJson("/api/auth/change-password", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ currentPassword, newPassword }),
+          });
+
+          currentPasswordInput.value = "";
+          nextPasswordInput.value = "";
+          setUsersStatus("Your password was updated.");
+        } catch (error) {
+          console.error("Failed to change password", error);
+          setUsersStatus(error.message || "Failed to change password.", true);
+        } finally {
+          changeMyPasswordBtn.disabled = false;
+        }
+      });
+
+      (async () => {
+        try {
+          setUsersStatus("Loading users...");
+          await loadUsers();
+          setUsersStatus("Users loaded.");
+        } catch (error) {
+          console.error("Failed to load users", error);
+          setUsersStatus(error.message || "Failed to load users.", true);
+        }
+      })();
+    </script>
+    <script src="/auth-client.js"></script>
+  </body>
+</html>

@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monthly Account Report</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Account Status by Category for Selected Month</h1>
+      <p class="sub" id="reportLabel">Choose a year and month.</p>
+
+      <section class="card">
+        <div class="grid">
+          <label>
+            Year
+            <select id="yearSelect"></select>
+          </label>
+          <label>
+            Month
+            <select id="monthSelect"></select>
+          </label>
+        </div>
+        <div class="actions">
+          <a class="button-link secondary-link" href="/reports"
+            >Back to Reports</a
+          >
+          <button id="loadBtn">Load Report</button>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="sub" id="totalsSummary" style="margin-top: 10px"></div>
+        <div class="sub" id="balanceSummary" style="margin-top: 6px"></div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Type</th>
+              <th>Total Amount</th>
+              <th>Transaction Count</th>
+            </tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Total</th>
+              <th scope="row"></th>
+              <th scope="row" id="grandTotalCell"></th>
+              <th scope="row"></th>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const rowsBody = document.getElementById("rowsBody");
+      const yearSelect = document.getElementById("yearSelect");
+      const monthSelect = document.getElementById("monthSelect");
+      const reportLabel = document.getElementById("reportLabel");
+      const grandTotalCell = document.getElementById("grandTotalCell");
+      const totalsSummary = document.getElementById("totalsSummary");
+      const balanceSummary = document.getElementById("balanceSummary");
+
+      let monthsByYear = {};
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(value || 0));
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      function monthLabel(month) {
+        const date = new Date(2000, month - 1, 1);
+        return date.toLocaleString(undefined, { month: "long" });
+      }
+
+      function formatType(value) {
+        return value === "income" ? "Income" : "Expense";
+      }
+
+      function renderMonthsForYear(year) {
+        monthSelect.innerHTML = "";
+
+        const months = monthsByYear[year] || [];
+
+        if (!months.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No months";
+          monthSelect.appendChild(option);
+          monthSelect.disabled = true;
+          return;
+        }
+
+        monthSelect.disabled = false;
+
+        for (const month of months) {
+          const option = document.createElement("option");
+          option.value = String(month);
+          option.textContent = `${monthLabel(month)} (${month})`;
+          monthSelect.appendChild(option);
+        }
+      }
+
+      function renderRows(rows, totals, balance) {
+        rowsBody.innerHTML = "";
+
+        const safeTotals = {
+          income: Number(totals?.income || 0),
+          expense: Number(totals?.expense || 0),
+          net: Number(totals?.net || 0),
+        };
+        const safeBalance = {
+          opening: Number(balance?.opening || 0),
+          periodNet: Number(balance?.periodNet || 0),
+          closing: Number(balance?.closing || 0),
+        };
+
+        grandTotalCell.textContent = formatCurrency(safeTotals.net);
+        totalsSummary.textContent = `Income: ${formatCurrency(safeTotals.income)} | Expense: ${formatCurrency(safeTotals.expense)} | Net: ${formatCurrency(safeTotals.net)}`;
+        balanceSummary.textContent = `Opening Balance: ${formatCurrency(safeBalance.opening)} | Period Net: ${formatCurrency(safeBalance.periodNet)} | Closing Balance: ${formatCurrency(safeBalance.closing)}`;
+
+        if (!rows.length) {
+          rowsBody.innerHTML =
+            '<tr><td colspan="4" style="text-align:center;color:#6b7280">No transactions for this period</td></tr>';
+          return;
+        }
+
+        for (const row of rows) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(formatCategoryDisplayName(row.category))}</td>
+            <td>${escapeHtml(formatType(row.categoryType))}</td>
+            <td>${escapeHtml(formatCurrency(row.totalAmount))}</td>
+            <td>${escapeHtml(row.transactionCount)}</td>
+          `;
+          rowsBody.appendChild(tr);
+        }
+      }
+
+      async function loadPeriods() {
+        const response = await fetch("/api/reports/available-periods");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load available periods");
+        }
+
+        const years = payload.data?.years || [];
+        monthsByYear = payload.data?.monthsByYear || {};
+
+        yearSelect.innerHTML = "";
+
+        if (!years.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No years available";
+          yearSelect.appendChild(option);
+          yearSelect.disabled = true;
+          monthSelect.disabled = true;
+          return false;
+        }
+
+        yearSelect.disabled = false;
+
+        for (const year of years) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          yearSelect.appendChild(option);
+        }
+
+        renderMonthsForYear(years[0]);
+        return true;
+      }
+
+      async function loadReport() {
+        const year = yearSelect.value;
+        const month = monthSelect.value;
+
+        if (!year || !month) {
+          renderRows([], {}, {});
+          reportLabel.textContent = "Choose a year and month.";
+          setStatus("No period selected", true);
+          return;
+        }
+
+        const response = await fetch(
+          `/api/reports/category-expenses?year=${year}&month=${month}`,
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load report");
+        }
+
+        const monthName = monthLabel(Number(month));
+        reportLabel.textContent = `Year: ${payload.period.year}, Month: ${monthName}`;
+        renderRows(
+          payload.data || [],
+          payload.totals || {},
+          payload.balance || {},
+        );
+        setStatus(`Loaded ${payload.count || 0} category row(s)`);
+      }
+
+      async function initialize() {
+        const hasPeriods = await loadPeriods();
+
+        if (!hasPeriods) {
+          reportLabel.textContent = "No transaction periods available yet.";
+          renderRows([], {}, {});
+          setStatus("Add transactions to enable reports", true);
+          return;
+        }
+
+        await loadReport();
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      yearSelect.addEventListener("change", () => {
+        const year = Number(yearSelect.value);
+        renderMonthsForYear(year);
+      });
+
+      document
+        .getElementById("loadBtn")
+        .addEventListener("click", () => withStatus(loadReport));
+
+      withStatus(initialize);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

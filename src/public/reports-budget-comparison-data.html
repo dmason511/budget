@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget vs Actual Data</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Budget vs Actual Data</h1>
+      <p class="sub" id="reportLabel">
+        Tabular budget, actual, and variance totals by category using monthly
+        category budgets.
+      </p>
+
+      <section class="card">
+        <div class="grid">
+          <label>
+            Year
+            <select id="yearSelect"></select>
+          </label>
+          <label>
+            Month
+            <select id="monthSelect"></select>
+          </label>
+          <label class="filter-toggle">
+            <input id="overBudgetOnly" type="checkbox" />
+            Only show over budget
+          </label>
+        </div>
+        <div class="actions nowrap-actions">
+          <button id="loadBtn">Load Data</button>
+          <a
+            class="button-link secondary-link"
+            href="/reports/budget-comparison"
+            >View Budget Chart</a
+          >
+          <a class="button-link secondary-link" href="/reports">Reports Home</a>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="sub" id="summaryLine" style="margin-top: 10px"></div>
+        <div class="sub" id="countsLine" style="margin-top: 6px"></div>
+        <div class="sub" style="margin-top: 6px">
+          Entire Year uses the monthly budget across the full selected year.
+        </div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="category"
+                  data-sort-label="Category"
+                >
+                  Category
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="budgetAmount"
+                  data-sort-label="Budget"
+                >
+                  Budget
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="actualAmount"
+                  data-sort-label="Actual"
+                >
+                  Actual
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="varianceAmount"
+                  data-sort-label="Variance"
+                >
+                  Variance
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="status"
+                  data-sort-label="Status"
+                >
+                  Status
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="transactionCount"
+                  data-sort-label="Transactions"
+                >
+                  Transactions
+                </button>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Total</th>
+              <th scope="row" id="totalBudgetCell"></th>
+              <th scope="row" id="totalActualCell"></th>
+              <th scope="row" id="totalVarianceCell"></th>
+              <th scope="row"></th>
+              <th scope="row"></th>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const yearSelect = document.getElementById("yearSelect");
+      const monthSelect = document.getElementById("monthSelect");
+      const loadBtn = document.getElementById("loadBtn");
+      const statusEl = document.getElementById("status");
+      const reportLabel = document.getElementById("reportLabel");
+      const summaryLine = document.getElementById("summaryLine");
+      const countsLine = document.getElementById("countsLine");
+      const rowsBody = document.getElementById("rowsBody");
+      const totalBudgetCell = document.getElementById("totalBudgetCell");
+      const totalActualCell = document.getElementById("totalActualCell");
+      const totalVarianceCell = document.getElementById("totalVarianceCell");
+      const overBudgetOnlyEl = document.getElementById("overBudgetOnly");
+      const sortHeaderButtons = document.querySelectorAll(".sort-header");
+
+      let monthsByYear = {};
+      let currentPayload = null;
+      let sortField = "varianceAmount";
+      let sortDirection = "desc";
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(value || 0));
+      }
+
+      function monthLabel(month) {
+        if (!month) {
+          return "Entire Year";
+        }
+
+        const date = new Date(2000, month - 1, 1);
+        return date.toLocaleString(undefined, { month: "long" });
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function renderMonthsForYear(year) {
+        monthSelect.innerHTML = "";
+
+        const fullYearOption = document.createElement("option");
+        fullYearOption.value = "";
+        fullYearOption.textContent = "Entire Year";
+        monthSelect.appendChild(fullYearOption);
+
+        const months = monthsByYear[year] || [];
+
+        for (const month of months) {
+          const option = document.createElement("option");
+          option.value = String(month);
+          option.textContent = `${monthLabel(month)} (${month})`;
+          monthSelect.appendChild(option);
+        }
+
+        monthSelect.disabled = false;
+      }
+
+      function getFilteredRows(rows) {
+        if (!overBudgetOnlyEl.checked) {
+          return rows;
+        }
+
+        return rows.filter((row) => Number(row.varianceAmount || 0) > 0);
+      }
+
+      async function loadPeriods() {
+        const response = await fetch("/api/reports/available-periods");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load available periods");
+        }
+
+        const years = payload.data?.years || [];
+        monthsByYear = payload.data?.monthsByYear || {};
+        yearSelect.innerHTML = "";
+
+        if (!years.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No years available";
+          yearSelect.appendChild(option);
+          yearSelect.disabled = true;
+          monthSelect.disabled = true;
+          return false;
+        }
+
+        yearSelect.disabled = false;
+
+        for (const year of years) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          yearSelect.appendChild(option);
+        }
+
+        renderMonthsForYear(years[0]);
+        return true;
+      }
+
+      function varianceLabel(value) {
+        if (value > 0) {
+          return "Over";
+        }
+
+        if (value < 0) {
+          return "Under";
+        }
+
+        return "On Budget";
+      }
+
+      function varianceColor(value) {
+        if (value > 0) {
+          return "#b91c1c";
+        }
+
+        if (value < 0) {
+          return "#0f766e";
+        }
+
+        return "#475569";
+      }
+
+      function varianceClassName(value) {
+        if (value > 0) {
+          return "over-budget";
+        }
+
+        if (value < 0) {
+          return "under-budget";
+        }
+
+        return "on-budget";
+      }
+
+      function getSortValue(row, field) {
+        if (field === "category") {
+          return formatCategoryDisplayName(row.category);
+        }
+
+        if (field === "status") {
+          return varianceLabel(Number(row.varianceAmount || 0));
+        }
+
+        return Number(row[field] || 0);
+      }
+
+      function getSortedRows(rows) {
+        const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+
+        return [...rows].sort((a, b) => {
+          const valueA = getSortValue(a, sortField);
+          const valueB = getSortValue(b, sortField);
+
+          let comparison = 0;
+
+          if (typeof valueA === "number") {
+            comparison = valueA - valueB;
+          } else {
+            comparison = String(valueA).localeCompare(
+              String(valueB),
+              undefined,
+              {
+                sensitivity: "base",
+                numeric: true,
+              },
+            );
+          }
+
+          if (comparison === 0) {
+            return String(a.category || "").localeCompare(
+              formatCategoryDisplayName(b.category),
+              undefined,
+              {
+                sensitivity: "base",
+                numeric: true,
+              },
+            );
+          }
+
+          return comparison * directionMultiplier;
+        });
+      }
+
+      function updateSortHeaderIndicators() {
+        for (const button of sortHeaderButtons) {
+          const label = button.dataset.sortLabel || "";
+          const isActive = button.dataset.sortField === sortField;
+          let arrow = "";
+
+          if (isActive) {
+            arrow = sortDirection === "asc" ? " ▲" : " ▼";
+          }
+
+          button.textContent = `${label}${arrow}`;
+
+          const th = button.closest("th");
+          if (!th) {
+            continue;
+          }
+
+          let ariaSortValue = "none";
+          if (isActive) {
+            ariaSortValue =
+              sortDirection === "asc" ? "ascending" : "descending";
+          }
+
+          th.setAttribute("aria-sort", ariaSortValue);
+        }
+      }
+
+      function setSort(field) {
+        if (sortField === field) {
+          sortDirection = sortDirection === "asc" ? "desc" : "asc";
+        } else {
+          sortField = field;
+          sortDirection =
+            field === "category" || field === "status" ? "asc" : "desc";
+        }
+
+        renderCurrentReport();
+      }
+
+      function renderRows(rows, totals) {
+        rowsBody.innerHTML = "";
+        updateSortHeaderIndicators();
+        totalBudgetCell.textContent = formatCurrency(totals?.budget || 0);
+        totalActualCell.textContent = formatCurrency(totals?.actual || 0);
+        totalVarianceCell.textContent = formatCurrency(totals?.variance || 0);
+        totalVarianceCell.style.color = varianceColor(
+          Number(totals?.variance || 0),
+        );
+
+        if (!rows.length) {
+          rowsBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#6b7280">${
+            overBudgetOnlyEl.checked
+              ? "No over-budget categories found for the selected period"
+              : "No spending categories found for the selected period"
+          }</td></tr>`;
+          return;
+        }
+
+        for (const row of rows) {
+          const variance = Number(row.varianceAmount || 0);
+          const statusClass = varianceClassName(variance);
+          const tr = document.createElement("tr");
+          tr.className = `${statusClass}-row`;
+          tr.innerHTML = `
+            <td>${escapeHtml(formatCategoryDisplayName(row.category))}</td>
+            <td>${escapeHtml(formatCurrency(row.budgetAmount))}</td>
+            <td>${escapeHtml(formatCurrency(row.actualAmount))}</td>
+            <td style="color:${varianceColor(variance)}"><strong>${escapeHtml(formatCurrency(variance))}</strong></td>
+            <td><span class="report-badge ${statusClass}">${escapeHtml(varianceLabel(variance))}</span></td>
+            <td>${escapeHtml(row.transactionCount)}</td>
+          `;
+          rowsBody.appendChild(tr);
+        }
+      }
+
+      function renderCurrentReport() {
+        const payload = currentPayload;
+        if (!payload) {
+          return;
+        }
+
+        const allRows = payload.data || [];
+        const rows = getSortedRows(getFilteredRows(allRows));
+        const periodMonth = payload.period?.month ?? null;
+        const totals = payload.totals || {};
+        const filterLabel = overBudgetOnlyEl.checked
+          ? " | Filter: Over budget only"
+          : "";
+
+        reportLabel.textContent = `Period: ${monthLabel(periodMonth)} ${payload.period?.year}${filterLabel}`;
+        summaryLine.textContent = `Budget: ${formatCurrency(totals.budget)} | Actual: ${formatCurrency(totals.actual)} | Variance: ${formatCurrency(totals.variance)}`;
+        countsLine.textContent = `Over budget: ${Number(totals.overBudgetCount || 0)} | Under budget: ${Number(totals.underBudgetCount || 0)} | On budget: ${Number(totals.onBudgetCount || 0)}`;
+        renderRows(rows, totals);
+        setStatus(
+          `Loaded ${rows.length} of ${allRows.length} category comparison row(s)`,
+        );
+      }
+
+      async function loadReport() {
+        const year = yearSelect.value;
+        const month = monthSelect.value;
+
+        if (!year) {
+          throw new Error("Select a year first");
+        }
+
+        const params = new URLSearchParams({ year });
+        if (month) {
+          params.set("month", month);
+        }
+
+        const response = await fetch(
+          `/api/reports/category-budget-comparison?${params.toString()}`,
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load budget data");
+        }
+
+        currentPayload = payload;
+        renderCurrentReport();
+      }
+
+      async function initialize() {
+        const hasPeriods = await loadPeriods();
+
+        if (!hasPeriods) {
+          setStatus("Add transactions to enable reports", true);
+          return;
+        }
+
+        await loadReport();
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      yearSelect.addEventListener("change", () => {
+        renderMonthsForYear(Number(yearSelect.value));
+        void withStatus(loadReport);
+      });
+
+      monthSelect.addEventListener("change", () => {
+        void withStatus(loadReport);
+      });
+
+      overBudgetOnlyEl.addEventListener("change", renderCurrentReport);
+
+      for (const button of sortHeaderButtons) {
+        button.addEventListener("click", () => {
+          const field = button.dataset.sortField;
+          if (!field) {
+            return;
+          }
+
+          setSort(field);
+        });
+      }
+
+      loadBtn.addEventListener("click", () => withStatus(loadReport));
+
+      withStatus(initialize);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

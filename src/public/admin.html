@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Admin</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link active" href="/admin" data-admin-only>Admin</a>
+          <a class="nav-link" href="/reports">Reports</a>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Admin</h1>
+      <p class="sub">Manage admin-only settings from this page.</p>
+
+      <section class="grid">
+        <article class="card">
+          <h2>User Access</h2>
+          <p class="sub">
+            Manage user roles, account status, and passwords in the dedicated
+            user administration page.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/admin/users">Open User Admin</a>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/auth-client.js"></script>
+  </body>
+</html>

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Trend Data</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Category Trend Data</h1>
+      <p class="sub">
+        Tabular monthly totals by category for the selected year with category
+        averages and monthly totals.
+      </p>
+
+      <section class="card">
+        <div class="grid">
+          <label>
+            Year
+            <select id="yearSelect"></select>
+          </label>
+        </div>
+        <div class="actions nowrap-actions">
+          <button id="loadBtn">Load Data</button>
+          <a class="button-link secondary-link" href="/reports/trends"
+            >View Trends Chart</a
+          >
+          <a class="button-link secondary-link" href="/reports">Reports Home</a>
+        </div>
+        <div class="status" id="status"></div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <table>
+          <thead id="trendTableHead">
+            <tr>
+              <th>Category</th>
+            </tr>
+          </thead>
+          <tbody id="trendTableBody"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const yearSelect = document.getElementById("yearSelect");
+      const statusEl = document.getElementById("status");
+      const trendTableHead = document.getElementById("trendTableHead");
+      const trendTableBody = document.getElementById("trendTableBody");
+
+      let currentTrendData = {
+        year: "",
+        categories: [],
+        datasets: [],
+      };
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(value || 0));
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      async function loadYears() {
+        const response = await fetch("/api/reports/available-periods");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load years");
+        }
+
+        const years = payload.data?.years || [];
+        yearSelect.innerHTML = "";
+
+        if (!years.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No years available";
+          yearSelect.appendChild(option);
+          yearSelect.disabled = true;
+          return false;
+        }
+
+        yearSelect.disabled = false;
+
+        for (const year of years) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          yearSelect.appendChild(option);
+        }
+
+        return true;
+      }
+
+      async function loadData() {
+        const year = yearSelect.value;
+
+        if (!year) {
+          throw new Error("Select a year first");
+        }
+
+        const response = await fetch(
+          `/api/reports/category-monthly?year=${year}`,
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load trend data");
+        }
+
+        const categories = payload.categories || [];
+        const datasets = payload.datasets || [];
+
+        currentTrendData = {
+          year,
+          categories,
+          datasets,
+        };
+
+        renderDataTable();
+
+        if (!categories.length) {
+          setStatus(
+            "No transaction categories found for the selected year",
+            true,
+          );
+          return;
+        }
+
+        setStatus(
+          `Loaded trend table for ${categories.length} category row(s) in ${year}`,
+        );
+      }
+
+      function renderDataTable() {
+        trendTableHead.innerHTML = "";
+        trendTableBody.innerHTML = "";
+
+        const categories = currentTrendData.categories;
+        const monthLabels = currentTrendData.datasets.map((set) => set.label);
+        const monthTotals = monthLabels.map(() => 0);
+
+        trendTableHead.innerHTML = `
+          <tr>
+            <th>Category</th>
+            ${monthLabels.map((month) => `<th>${month}</th>`).join("")}
+            <th>Avg</th>
+          </tr>
+        `;
+
+        if (!categories.length) {
+          trendTableBody.innerHTML = `
+            <tr>
+              <td colspan="${2 + monthLabels.length}" style="text-align:center;color:#6b7280">
+                No data for selected year
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        for (const [categoryIndex, category] of categories.entries()) {
+          let categoryTotal = 0;
+          let nonZeroCount = 0;
+
+          const monthCells = currentTrendData.datasets
+            .map((set, monthIndex) => {
+              const value = Number(set.data[categoryIndex] || 0);
+              categoryTotal += value;
+              if (value !== 0) {
+                nonZeroCount += 1;
+              }
+              monthTotals[monthIndex] += value;
+              return `<td>${formatCurrency(value)}</td>`;
+            })
+            .join("");
+
+          const categoryAverage =
+            nonZeroCount > 0 ? categoryTotal / nonZeroCount : 0;
+
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${formatCategoryDisplayName(category)}</td>
+            ${monthCells}
+            <td><strong>${formatCurrency(categoryAverage)}</strong></td>
+          `;
+          trendTableBody.appendChild(tr);
+        }
+
+        const totalsRow = document.createElement("tr");
+        const nonZeroMonthTotals = monthTotals.filter((value) => value !== 0);
+        const grandAverage =
+          nonZeroMonthTotals.length > 0
+            ? nonZeroMonthTotals.reduce((sum, value) => sum + value, 0) /
+              nonZeroMonthTotals.length
+            : 0;
+
+        totalsRow.innerHTML = `
+          <td><strong>Total</strong></td>
+          ${monthTotals
+            .map(
+              (value) => `<td><strong>${formatCurrency(value)}</strong></td>`,
+            )
+            .join("")}
+          <td><strong>${formatCurrency(grandAverage)}</strong></td>
+        `;
+        trendTableBody.appendChild(totalsRow);
+      }
+
+      async function initialize() {
+        const hasYears = await loadYears();
+
+        if (!hasYears) {
+          setStatus("No transaction years available yet", true);
+          return;
+        }
+
+        await loadData();
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      document
+        .getElementById("loadBtn")
+        .addEventListener("click", () => withStatus(loadData));
+
+      withStatus(initialize);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DB_FILE: /app/data/budget.sqlite
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

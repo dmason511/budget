@@ -1,0 +1,1091 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Transactions</title>
+    <link rel="stylesheet" href="/common.css" />
+    <style>
+      body.modal-open {
+        overflow: hidden;
+      }
+
+      dialog.modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        border: 0;
+        background: transparent;
+      }
+
+      dialog.modal-backdrop::backdrop {
+        background: rgba(15, 23, 42, 0.12);
+      }
+
+      dialog.modal-backdrop:not([open]) {
+        display: none;
+      }
+
+      .modal-panel {
+        width: min(100%, 480px);
+        border-radius: 20px;
+        border: 1px solid rgba(219, 227, 238, 0.72);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+        overflow: hidden;
+        animation: modal-pop 0.18s ease-out;
+        padding: 0;
+      }
+
+      .modal-header {
+        padding: 18px 20px 0;
+      }
+
+      .modal-title {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .modal-body {
+        padding: 12px 20px 4px;
+      }
+
+      .modal-summary {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .modal-details {
+        margin: 12px 0 0;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 0.95rem;
+        line-height: 1.5;
+      }
+
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 16px 20px 20px;
+        flex-wrap: wrap;
+      }
+
+      .modal-actions button {
+        min-width: 112px;
+        border-radius: 999px;
+        box-shadow: none;
+        letter-spacing: 0.01em;
+      }
+
+      .modal-actions .secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .modal-actions .danger {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+
+      .due-day-input {
+        width: 10ch;
+        max-width: 100%;
+      }
+
+      .date-input {
+        width: 18ch;
+        max-width: 100%;
+      }
+
+      .transaction-fields {
+        display: grid;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .transaction-fields label {
+        margin-top: 0;
+      }
+
+      .transaction-fields .field {
+        padding-left: var(--field-offset, 0px);
+      }
+
+      .transaction-fields .field > input,
+      .transaction-fields .field > select {
+        margin-top: 8px;
+      }
+
+      .category-field {
+        --field-offset: 0px;
+      }
+
+      .amount-field {
+        --field-offset: 12px;
+      }
+
+      .due-day-field {
+        --field-offset: 5px;
+      }
+
+      .date-field {
+        --field-offset: 0px;
+      }
+
+      .description-field {
+        --field-offset: 0px;
+      }
+
+      @media (max-width: 640px) {
+        .due-day-input,
+        .date-input {
+          width: 100%;
+        }
+      }
+
+      @keyframes modal-pop {
+        from {
+          opacity: 0;
+          transform: translateY(10px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .modal-panel {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link active" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Budget Transactions</h1>
+      <p class="sub">Create, update, and delete transactions from this page.</p>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Create or Update Transaction</h2>
+          <p id="selectedRow" class="sub" style="margin: 0 0 8px">
+            Selected row: none
+          </p>
+          <div class="transaction-fields">
+            <label class="field category-field">
+              Category
+              <select id="category" class="category-select"></select>
+            </label>
+            <label class="field amount-field">
+              Amount
+              <input
+                id="amount"
+                class="currency-input"
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+              />
+            </label>
+            <label class="field due-day-field">
+              Due Date
+              <input id="dueDay" class="due-day-input" type="number" readonly />
+            </label>
+            <label class="field date-field">
+              Date
+              <input id="date" class="date-input" type="date" />
+            </label>
+            <label class="field description-field">
+              Description
+              <input id="description" type="text" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="createBtn">Create</button>
+            <button id="updateBtn" class="secondary">Update</button>
+            <button id="clearSelectionBtn" class="secondary">
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <h2>Database Rows (transactions)</h2>
+        <div class="actions" style="margin-top: 0; align-items: center">
+          <label style="margin: 0">
+            Rows per page
+            <select id="rowsPerPage" style="width: auto">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <button id="prevPageBtn" class="secondary">Previous</button>
+          <button id="nextPageBtn" class="secondary">Next</button>
+          <span id="pageInfo" class="sub" style="margin: 0">Page 1 of 1</span>
+          <div class="search-inline push-right">
+            <span class="search-icon" aria-hidden="true">&#128269;</span>
+            <input
+              id="rowFilterInput"
+              class="search-input"
+              type="search"
+              aria-label="Search table rows"
+            />
+          </div>
+          <button
+            id="refreshRowsBtn"
+            class="icon secondary"
+            aria-label="Refresh rows"
+            title="Refresh rows"
+          >
+            &#10227;
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="description"
+                  data-sort-label="Description"
+                >
+                  Description
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="amount"
+                  data-sort-label="Amount"
+                >
+                  Amount
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="category"
+                  data-sort-label="Category"
+                >
+                  Category
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="notes"
+                  data-sort-label="Notes"
+                >
+                  Notes
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="date"
+                  data-sort-label="Date"
+                >
+                  Date
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="createdAt"
+                  data-sort-label="Created"
+                >
+                  Created
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  class="sort-header"
+                  data-sort-field="updatedAt"
+                  data-sort-label="Updated"
+                >
+                  Updated
+                </button>
+              </th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <dialog
+      id="deleteModal"
+      class="modal-backdrop"
+      aria-labelledby="deleteModalTitle"
+      aria-describedby="deleteModalSummary"
+    >
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="deleteModalTitle" class="modal-title">Delete transaction?</h2>
+        </div>
+        <div class="modal-body">
+          <p id="deleteModalSummary" class="modal-summary">
+            This action cannot be undone.
+          </p>
+          <div id="deleteModalDetails" class="modal-details"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="deleteModalCancelBtn" type="button" class="secondary">
+            Cancel
+          </button>
+          <button id="deleteModalConfirmBtn" type="button" class="danger">
+            Delete
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <output id="feedbackToast" class="toast-status" aria-live="polite"></output>
+
+    <script>
+      const statusEl = document.getElementById("feedbackToast");
+      const deleteModalEl = document.getElementById("deleteModal");
+      const deleteModalDetailsEl =
+        document.getElementById("deleteModalDetails");
+      const deleteModalCancelBtn = document.getElementById(
+        "deleteModalCancelBtn",
+      );
+      const deleteModalConfirmBtn = document.getElementById(
+        "deleteModalConfirmBtn",
+      );
+      const rowsBody = document.getElementById("rowsBody");
+      const selectedRowEl = document.getElementById("selectedRow");
+      const rowsPerPageEl = document.getElementById("rowsPerPage");
+      const prevPageBtn = document.getElementById("prevPageBtn");
+      const nextPageBtn = document.getElementById("nextPageBtn");
+      const pageInfoEl = document.getElementById("pageInfo");
+      const rowFilterInput = document.getElementById("rowFilterInput");
+      const refreshRowsBtn = document.getElementById("refreshRowsBtn");
+      const sortHeaderButtons = document.querySelectorAll(".sort-header");
+      let selectedTransactionId = null;
+      let allRows = [];
+      let currentRows = [];
+      let currentCategories = [];
+      let currentPage = 1;
+      let sortField = "createdAt";
+      let sortDirection = "desc";
+      let statusTimeout;
+      let pendingDeleteRow = null;
+      let lastDeleteTrigger = null;
+
+      const fields = {
+        description: document.getElementById("description"),
+        amount: document.getElementById("amount"),
+        category: document.getElementById("category"),
+        dueDay: document.getElementById("dueDay"),
+        date: document.getElementById("date"),
+      };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function toTitleCaseWords(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\b\w/g, (char) => char.toUpperCase());
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      function getCurrentLocalDateValue() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        return now.toISOString().slice(0, 10);
+      }
+
+      function toDateInputValue(value) {
+        if (!value) {
+          return "";
+        }
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+          return String(value);
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return "";
+        }
+
+        date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+        return date.toISOString().slice(0, 10);
+      }
+
+      function parseDateValue(value) {
+        if (!value) {
+          return null;
+        }
+
+        const stringValue = String(value).trim();
+        if (!stringValue) {
+          return null;
+        }
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
+          const [year, month, day] = stringValue.split("-").map(Number);
+          return new Date(year, month - 1, day);
+        }
+
+        const date = new Date(stringValue);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+
+      function resetForm() {
+        fields.description.value = "";
+        fields.amount.value = "";
+        fields.category.value = "";
+        fields.dueDay.value = "";
+        fields.date.value = getCurrentLocalDateValue();
+      }
+
+      function clearSelection() {
+        selectedTransactionId = null;
+        selectedRowEl.textContent = "Selected row: none";
+      }
+
+      function fillFormFromRow(row) {
+        fields.description.value = toTitleCaseWords(row.description || "");
+        fields.amount.value = row.amount ?? "";
+        renderCategoryOptions(currentCategories, row.category || "");
+
+        const selectedCategory = currentCategories.find(
+          (item) => item.name === (row.category || ""),
+        );
+        fields.dueDay.value = selectedCategory?.defaultDueDay || "";
+
+        if (row.date) {
+          fields.date.value = toDateInputValue(row.date);
+        } else {
+          fields.date.value = "";
+        }
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.classList.remove("show", "error");
+
+        if (!message) {
+          return;
+        }
+
+        if (isError) {
+          statusEl.classList.add("error");
+        }
+
+        statusEl.classList.add("show");
+
+        if (statusTimeout) {
+          clearTimeout(statusTimeout);
+        }
+
+        statusTimeout = setTimeout(() => {
+          statusEl.classList.remove("show", "error");
+        }, 3200);
+      }
+
+      function formatLocalDate(value) {
+        const date = parseDateValue(value);
+        if (!date) {
+          if (!value) {
+            return "";
+          }
+
+          return String(value);
+        }
+
+        return date.toLocaleDateString();
+      }
+
+      function resizeSelectToLongestOption(selectEl) {
+        if (!(selectEl instanceof HTMLSelectElement)) {
+          return;
+        }
+
+        const longestTextLength = Array.from(selectEl.options).reduce(
+          (max, option) => Math.max(max, option.textContent?.length || 0),
+          0,
+        );
+
+        const widthInCh = Math.max(longestTextLength + 3, 12);
+        selectEl.style.width = `${widthInCh}ch`;
+        selectEl.style.maxWidth = "100%";
+      }
+
+      function renderCategoryOptions(categories, selectedName = "") {
+        fields.category.innerHTML = "";
+
+        for (const category of categories) {
+          const option = document.createElement("option");
+          option.value = category.name;
+          option.textContent = formatCategoryDisplayName(category.name);
+          fields.category.appendChild(option);
+        }
+
+        if (
+          selectedName &&
+          !categories.some((item) => item.name === selectedName)
+        ) {
+          const option = document.createElement("option");
+          option.value = selectedName;
+          option.textContent = `${formatCategoryDisplayName(selectedName)} (legacy)`;
+          fields.category.appendChild(option);
+        }
+
+        if (selectedName) {
+          fields.category.value = selectedName;
+        } else if (categories.length) {
+          fields.category.value = categories[0].name;
+        }
+
+        resizeSelectToLongestOption(fields.category);
+      }
+
+      function applyDefaultAmountForSelectedCategory() {
+        const selectedName = fields.category.value;
+        const selectedCategory = currentCategories.find(
+          (item) => item.name === selectedName,
+        );
+
+        if (!selectedCategory) {
+          return;
+        }
+
+        if (
+          selectedCategory.defaultAmount === null ||
+          selectedCategory.defaultAmount === undefined
+        ) {
+          fields.amount.value = "";
+        } else {
+          fields.amount.value = String(selectedCategory.defaultAmount);
+        }
+
+        fields.dueDay.value = selectedCategory.defaultDueDay || "";
+      }
+
+      function payloadFromForm() {
+        const parsedAmount = Number(fields.amount.value);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+          throw new Error("Amount must be greater than 0");
+        }
+
+        const payload = {
+          description: toTitleCaseWords(fields.description.value),
+          amount: parsedAmount,
+          category: fields.category.value,
+        };
+
+        if (fields.date.value) {
+          payload.date = fields.date.value;
+        }
+
+        return payload;
+      }
+
+      function getCategoryNotesByName(categoryName) {
+        const category = currentCategories.find(
+          (item) => item.name === categoryName,
+        );
+        return category?.notes || "";
+      }
+
+      function updatePaginationControls(totalRows, totalPages) {
+        const safeTotalPages = Math.max(totalPages, 1);
+        pageInfoEl.textContent = `Page ${currentPage} of ${safeTotalPages}`;
+        prevPageBtn.disabled = currentPage <= 1 || totalRows === 0;
+        nextPageBtn.disabled = currentPage >= safeTotalPages || totalRows === 0;
+      }
+
+      function getSortValue(row, field) {
+        if (field === "notes") {
+          return getCategoryNotesByName(row.category) || "";
+        }
+
+        if (field === "amount") {
+          return Number(row.amount || 0);
+        }
+
+        if (
+          field === "date" ||
+          field === "createdAt" ||
+          field === "updatedAt"
+        ) {
+          if (!row[field]) {
+            return null;
+          }
+
+          const timestamp = new Date(row[field]).getTime();
+          return Number.isNaN(timestamp) ? null : timestamp;
+        }
+
+        return String(row[field] || "");
+      }
+
+      function buildRowSearchText(row) {
+        return [
+          row.description,
+          row.amount,
+          row.category,
+          getCategoryNotesByName(row.category),
+          row.date,
+          row.createdAt,
+          row.updatedAt,
+          formatLocalDate(row.date),
+          formatLocalDate(row.createdAt),
+          formatLocalDate(row.updatedAt),
+        ]
+          .map((value) => String(value || "").toLowerCase())
+          .join(" ");
+      }
+
+      function getFilteredRows(rows) {
+        const query = rowFilterInput.value.trim().toLowerCase();
+        if (!query) {
+          return rows;
+        }
+
+        return rows.filter((row) => buildRowSearchText(row).includes(query));
+      }
+
+      function compareNullableNumbers(a, b) {
+        if (a === null && b === null) {
+          return 0;
+        }
+
+        if (a === null) {
+          return 1;
+        }
+
+        if (b === null) {
+          return -1;
+        }
+
+        return a - b;
+      }
+
+      function getSortedRows(rows) {
+        const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+
+        return [...rows].sort((a, b) => {
+          const valueA = getSortValue(a, sortField);
+          const valueB = getSortValue(b, sortField);
+
+          let comparison;
+
+          if (typeof valueA === "number" || valueA === null) {
+            comparison = compareNullableNumbers(valueA, valueB);
+          } else {
+            comparison = String(valueA).localeCompare(
+              String(valueB),
+              undefined,
+              {
+                sensitivity: "base",
+                numeric: true,
+              },
+            );
+          }
+
+          if (comparison === 0) {
+            const createdA = new Date(a.createdAt || 0).getTime();
+            const createdB = new Date(b.createdAt || 0).getTime();
+            return createdB - createdA;
+          }
+
+          return comparison * directionMultiplier;
+        });
+      }
+
+      function updateSortHeaderIndicators() {
+        for (const button of sortHeaderButtons) {
+          const label = button.dataset.sortLabel || "";
+          const isActive = button.dataset.sortField === sortField;
+          let arrow = "";
+          if (isActive) {
+            arrow = sortDirection === "asc" ? " ▲" : " ▼";
+          }
+
+          button.textContent = `${label}${arrow}`;
+
+          const th = button.closest("th");
+          if (th) {
+            let ariaSortValue = "none";
+            if (isActive) {
+              ariaSortValue =
+                sortDirection === "asc" ? "ascending" : "descending";
+            }
+
+            th.setAttribute("aria-sort", ariaSortValue);
+          }
+        }
+      }
+
+      function setSort(field) {
+        if (sortField === field) {
+          sortDirection = sortDirection === "asc" ? "desc" : "asc";
+        } else {
+          sortField = field;
+          sortDirection = field === "createdAt" ? "desc" : "asc";
+        }
+
+        currentPage = 1;
+        renderCurrentPage();
+      }
+
+      function renderCurrentPage() {
+        const rowsPerPage = Number(rowsPerPageEl.value) || 10;
+        const filteredRows = getFilteredRows(allRows);
+        const sortedRows = getSortedRows(filteredRows);
+        const totalRows = sortedRows.length;
+        const totalPages = Math.max(Math.ceil(totalRows / rowsPerPage), 1);
+
+        if (currentPage > totalPages) {
+          currentPage = totalPages;
+        }
+
+        const start = (currentPage - 1) * rowsPerPage;
+        const end = start + rowsPerPage;
+        const visibleRows = sortedRows.slice(start, end);
+
+        currentRows = visibleRows;
+        rowsBody.innerHTML = "";
+        updateSortHeaderIndicators();
+
+        if (!visibleRows.length) {
+          rowsBody.innerHTML =
+            '<tr><td colspan="8" style="text-align:center;color:#6b7280">No rows found</td></tr>';
+          updatePaginationControls(totalRows, totalPages);
+          return;
+        }
+
+        for (const [index, row] of visibleRows.entries()) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(toTitleCaseWords(row.description))}</td>
+            <td>${escapeHtml(row.amount)}</td>
+            <td>${escapeHtml(formatCategoryDisplayName(row.category))}</td>
+            <td>${escapeHtml(getCategoryNotesByName(row.category))}</td>
+            <td>${escapeHtml(formatLocalDate(row.date))}</td>
+            <td>${escapeHtml(formatLocalDate(row.createdAt))}</td>
+            <td>${escapeHtml(formatLocalDate(row.updatedAt))}</td>
+            <td>
+              <button class="icon secondary" data-action="edit" data-row-index="${index}" aria-label="Edit row" title="Edit row">&#9998;</button>
+              <button class="icon danger" data-action="delete" data-row-index="${index}" aria-label="Delete row" title="Delete row">&#128465;</button>
+            </td>
+          `;
+          rowsBody.appendChild(tr);
+        }
+
+        updatePaginationControls(totalRows, totalPages);
+      }
+
+      async function loadCategories(selectedName = "") {
+        const response = await fetch("/api/categories");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to load categories");
+        }
+
+        const categories = data.data || [];
+        currentCategories = categories;
+        renderCategoryOptions(categories, selectedName);
+
+        if (allRows.length) {
+          renderCurrentPage();
+        }
+
+        if (!selectedName) {
+          applyDefaultAmountForSelectedCategory();
+        }
+      }
+
+      function renderRows(rows) {
+        allRows = rows;
+        renderCurrentPage();
+      }
+
+      async function readAll() {
+        const response = await fetch("/api/transactions");
+        const data = await response.json();
+        renderRows(data.data || []);
+        setStatus(`Loaded ${data.count || 0} row(s)`);
+      }
+
+      async function createTransaction() {
+        const response = await fetch("/api/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payloadFromForm()),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Create failed");
+        }
+
+        clearSelection();
+        resetForm();
+        setStatus("Created row successfully");
+        await readAll();
+      }
+
+      async function updateTransaction() {
+        if (!selectedTransactionId) {
+          throw new Error("Select a row with Edit before updating");
+        }
+
+        const response = await fetch(
+          `/api/transactions/${selectedTransactionId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payloadFromForm()),
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Update failed");
+        }
+
+        setStatus("Updated selected row");
+        await readAll();
+      }
+
+      async function deleteTransactionById(id) {
+        const response = await fetch(`/api/transactions/${id}`, {
+          method: "DELETE",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Delete failed");
+        }
+
+        if (selectedTransactionId === id) {
+          clearSelection();
+          resetForm();
+        }
+
+        setStatus("Deleted row successfully");
+        await readAll();
+      }
+
+      function buildDeleteModalDetails(row) {
+        const description = toTitleCaseWords(
+          row.description || "Untitled transaction",
+        );
+        const amount = row.amount ?? "0";
+        const category = row.category || "uncategorized";
+        const date = formatLocalDate(row.date) || "No date set";
+
+        return `
+          <strong>${escapeHtml(description)}</strong><br />
+          Amount: ${escapeHtml(amount)}<br />
+          Category: ${escapeHtml(formatCategoryDisplayName(category))}<br />
+          Date: ${escapeHtml(date)}
+        `;
+      }
+
+      function closeDeleteModal() {
+        pendingDeleteRow = null;
+        deleteModalEl.removeAttribute("open");
+        deleteModalEl.hidden = true;
+        document.body.classList.remove("modal-open");
+
+        if (lastDeleteTrigger instanceof HTMLElement) {
+          lastDeleteTrigger.focus();
+        }
+      }
+
+      function openDeleteModal(row, triggerButton) {
+        pendingDeleteRow = row;
+        lastDeleteTrigger = triggerButton || null;
+        deleteModalDetailsEl.innerHTML = buildDeleteModalDetails(row);
+        deleteModalEl.hidden = false;
+        deleteModalEl.setAttribute("open", "");
+        document.body.classList.add("modal-open");
+        deleteModalCancelBtn.focus();
+      }
+
+      async function confirmPendingDelete() {
+        if (!pendingDeleteRow) {
+          closeDeleteModal();
+          return;
+        }
+
+        const row = pendingDeleteRow;
+        closeDeleteModal();
+        await withStatus(() => deleteTransactionById(row.id));
+      }
+
+      rowsBody.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+
+        const button = target.closest("button[data-action]");
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        const action = button.dataset.action;
+        const indexValue = button.dataset.rowIndex;
+
+        if (!action || indexValue === undefined) {
+          return;
+        }
+
+        const row = currentRows[Number(indexValue)];
+        if (!row) {
+          setStatus("Row no longer available. Refresh and try again.", true);
+          return;
+        }
+
+        if (action === "edit") {
+          selectedTransactionId = row.id;
+          fillFormFromRow(row);
+          selectedRowEl.textContent = `Selected row: ${toTitleCaseWords(row.description)}`;
+          setStatus("Row loaded into form for update");
+          return;
+        }
+
+        if (action === "delete") {
+          openDeleteModal(row, button);
+        }
+      });
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      document
+        .getElementById("createBtn")
+        .addEventListener("click", () => withStatus(createTransaction));
+      document
+        .getElementById("updateBtn")
+        .addEventListener("click", () => withStatus(updateTransaction));
+      refreshRowsBtn.addEventListener("click", () => withStatus(readAll));
+      rowsPerPageEl.addEventListener("change", () => {
+        currentPage = 1;
+        renderCurrentPage();
+      });
+      rowFilterInput.addEventListener("input", () => {
+        currentPage = 1;
+        renderCurrentPage();
+      });
+      for (const button of sortHeaderButtons) {
+        button.addEventListener("click", () => {
+          if (!button.dataset.sortField) {
+            return;
+          }
+
+          setSort(button.dataset.sortField);
+        });
+      }
+      prevPageBtn.addEventListener("click", () => {
+        if (currentPage <= 1) {
+          return;
+        }
+
+        currentPage -= 1;
+        renderCurrentPage();
+      });
+      nextPageBtn.addEventListener("click", () => {
+        const rowsPerPage = Number(rowsPerPageEl.value) || 10;
+        const totalPages = Math.max(Math.ceil(allRows.length / rowsPerPage), 1);
+
+        if (currentPage >= totalPages) {
+          return;
+        }
+
+        currentPage += 1;
+        renderCurrentPage();
+      });
+      document
+        .getElementById("clearSelectionBtn")
+        .addEventListener("click", () => {
+          clearSelection();
+          resetForm();
+          setStatus("Selection cleared");
+        });
+      deleteModalCancelBtn.addEventListener("click", closeDeleteModal);
+      deleteModalConfirmBtn.addEventListener("click", confirmPendingDelete);
+      deleteModalEl.addEventListener("click", (event) => {
+        if (event.target === deleteModalEl) {
+          closeDeleteModal();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && deleteModalEl.hasAttribute("open")) {
+          closeDeleteModal();
+        }
+      });
+      fields.category.addEventListener("change", () => {
+        applyDefaultAmountForSelectedCategory();
+      });
+
+      resetForm();
+      withStatus(loadCategories);
+      withStatus(readAll);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

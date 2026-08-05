@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Reports</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Reports</h1>
+      <p class="sub">Choose a report view.</p>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Category Trends</h2>
+          <p class="sub">
+            Interactive line chart for category trends by month.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/trends">Open Report</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Trends Data</h2>
+          <p class="sub">
+            Tabular monthly trend data by category with totals and averages.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/trends-data">Open Report</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Budget vs Actual</h2>
+          <p class="sub">
+            Compare total category spending to budgeted amounts for a year or a
+            specific month.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/budget-comparison"
+              >Open Report</a
+            >
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Budget vs Actual Data</h2>
+          <p class="sub">
+            Tabular budget, actual, and variance details by category for the
+            selected period.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/budget-comparison-data"
+              >Open Report</a
+            >
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Current Year by Category</h2>
+          <p class="sub">
+            Shows category totals with income, expense, and net account status
+            for the current year.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/current-year">Open Report</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Selected Year and Month</h2>
+          <p class="sub">
+            Pick a year and month where transactions exist to view income,
+            expense, and net.
+          </p>
+          <div class="actions">
+            <a class="button-link" href="/reports/by-period">Open Report</a>
+          </div>
+        </article>
+      </section>
+    </main>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

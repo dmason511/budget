@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Categories</title>
+    <link rel="stylesheet" href="/common.css" />
+    <style>
+      .category-name-cell {
+        display: grid;
+        gap: 4px;
+      }
+
+      .category-rename-indicator {
+        min-height: 16px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #0f766e;
+      }
+
+      .category-rename-indicator[hidden] {
+        display: none;
+      }
+
+      dialog.modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        border: 0;
+        background: transparent;
+      }
+
+      dialog.modal-backdrop::backdrop {
+        background: rgba(15, 23, 42, 0.12);
+      }
+
+      dialog.modal-backdrop:not([open]) {
+        display: none;
+      }
+
+      .modal-panel {
+        width: min(100%, 480px);
+        border-radius: 20px;
+        border: 1px solid rgba(219, 227, 238, 0.72);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+        overflow: hidden;
+        padding: 0;
+      }
+
+      .modal-header {
+        padding: 18px 20px 0;
+      }
+
+      .modal-title {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .modal-body {
+        padding: 12px 20px 4px;
+      }
+
+      .modal-summary {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding: 16px 20px 20px;
+        flex-wrap: wrap;
+      }
+
+      .modal-actions button {
+        min-width: 112px;
+        border-radius: 999px;
+        box-shadow: none;
+        letter-spacing: 0.01em;
+      }
+
+      .modal-actions .secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .modal-actions .danger {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link active" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link" href="/reports">Reports</a>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Categories</h1>
+      <p class="sub">
+        Manage reusable transaction categories. Default Amount and Budget Amount
+        are monthly values.
+      </p>
+
+      <section class="card">
+        <label>
+          New Category Name
+          <input id="newCategoryName" type="text" />
+        </label>
+        <div class="actions nowrap-actions">
+          <button id="addCategoryBtn">Add Category</button>
+          <button id="refreshCategoriesBtn" class="secondary">
+            Refresh Categories
+          </button>
+          <a class="button-link secondary-link" href="/menu">Back to Menu</a>
+          <a
+            class="button-link secondary-link"
+            href="/admin"
+            data-admin-only
+            hidden
+            >Admin Home</a
+          >
+        </div>
+        <div class="status" id="categoryStatus"></div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <div class="actions" style="margin-top: 0; align-items: center">
+          <h2 style="margin: 0">Database Rows (categories)</h2>
+          <div class="search-inline push-right">
+            <span class="search-icon" aria-hidden="true">&#128269;</span>
+            <input
+              id="categoryFilterInput"
+              class="search-input"
+              type="search"
+              aria-label="Search category rows"
+            />
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Type</th>
+              <th>Default Amount / Month</th>
+              <th>Budget Amount / Month</th>
+              <th>Default Due Day</th>
+              <th>Notes</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="categoriesBody"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <dialog
+      id="renameConfirmModal"
+      class="modal-backdrop"
+      aria-labelledby="renameConfirmTitle"
+      aria-describedby="renameConfirmSummary"
+    >
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="renameConfirmTitle" class="modal-title">
+            Update transactions?
+          </h2>
+        </div>
+        <div class="modal-body">
+          <p id="renameConfirmSummary" class="modal-summary"></p>
+        </div>
+        <div class="modal-actions">
+          <button id="renameConfirmCancelBtn" type="button" class="secondary">
+            Cancel
+          </button>
+          <button id="renameConfirmProceedBtn" type="button" class="danger">
+            Update
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <script>
+      const categoryStatusEl = document.getElementById("categoryStatus");
+      const categoriesBody = document.getElementById("categoriesBody");
+      const newCategoryNameEl = document.getElementById("newCategoryName");
+      const categoryFilterInput = document.getElementById(
+        "categoryFilterInput",
+      );
+      const renameConfirmModalEl =
+        document.getElementById("renameConfirmModal");
+      const renameConfirmSummaryEl = document.getElementById(
+        "renameConfirmSummary",
+      );
+      const renameConfirmCancelBtn = document.getElementById(
+        "renameConfirmCancelBtn",
+      );
+      const renameConfirmProceedBtn = document.getElementById(
+        "renameConfirmProceedBtn",
+      );
+      let currentCategories = [];
+      let renameConfirmResolver = null;
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function setCategoryStatus(message, isError = false) {
+        categoryStatusEl.textContent = message;
+        categoryStatusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatLocalDate(value) {
+        if (!value) {
+          return "";
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return String(value);
+        }
+
+        return date.toLocaleDateString();
+      }
+
+      function normalizeCategoryNameInput(value) {
+        const trimmed = String(value || "")
+          .trim()
+          .replace(/\s+/g, " ");
+
+        if (!trimmed) {
+          return "";
+        }
+
+        return trimmed;
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      function renderCategoriesAdmin(categories) {
+        currentCategories = categories;
+        categoriesBody.innerHTML = "";
+
+        const query = categoryFilterInput.value.trim().toLowerCase();
+        const visibleCategories = query
+          ? categories.filter((category) => {
+              const searchableText = [
+                category.name,
+                category.categoryType,
+                category.defaultAmount,
+                category.budgetAmount,
+                category.defaultDueDay,
+                category.notes,
+                category.createdAt,
+                formatLocalDate(category.createdAt),
+              ]
+                .map((value) => String(value || "").toLowerCase())
+                .join(" ");
+
+              return searchableText.includes(query);
+            })
+          : categories;
+
+        if (!visibleCategories.length) {
+          categoriesBody.innerHTML =
+            '<tr><td colspan="8" style="text-align:center;color:#6b7280">No categories found</td></tr>';
+          return;
+        }
+
+        for (const category of visibleCategories) {
+          const isLocked = category.name === "uncategorized";
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>
+              <div class="category-name-cell">
+                <input
+                  type="text"
+                  value="${escapeHtml(category.name)}"
+                  data-category-name-index="${category.id}"
+                  ${isLocked ? "readonly" : ""}
+                  ${isLocked ? 'style="text-transform: capitalize"' : ""}
+                />
+                <span
+                  class="category-rename-indicator"
+                  data-category-name-indicator-index="${category.id}"
+                  hidden
+                  >Name changed</span
+                >
+              </div>
+            </td>
+            <td>
+              <select data-category-type-index="${category.id}">
+                <option value="expense" ${category.categoryType !== "income" ? "selected" : ""}>Expense</option>
+                <option value="income" ${category.categoryType === "income" ? "selected" : ""}>Income</option>
+              </select>
+            </td>
+            <td>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="No monthly default"
+                value="${category.defaultAmount ?? ""}"
+                data-category-input-index="${category.id}"
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="No monthly budget"
+                value="${category.budgetAmount ?? ""}"
+                data-category-budget-index="${category.id}"
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                step="1"
+                placeholder="1-31"
+                value="${category.defaultDueDay ?? ""}"
+                data-category-due-day-index="${category.id}"
+              />
+            </td>
+            <td>
+              <textarea
+                class="notes-field"
+                placeholder="Optional notes"
+                data-category-notes-index="${category.id}"
+              >${escapeHtml(category.notes || "")}</textarea>
+            </td>
+            <td>${escapeHtml(formatLocalDate(category.createdAt))}</td>
+            <td class="row-actions">
+              <button
+                class="icon secondary"
+                data-category-action="save"
+                data-category-index="${category.id}"
+                aria-label="Save category"
+                title="Save default amount"
+                disabled
+              >
+                &#128190;
+              </button>
+              <button
+                class="icon danger"
+                data-category-action="delete"
+                data-category-index="${category.id}"
+                aria-label="Delete category"
+                ${isLocked ? "disabled" : ""}
+                title="Delete category"
+              >
+                &#128465;
+              </button>
+            </td>
+          `;
+          categoriesBody.appendChild(tr);
+          updateCategoryRowState(category.id);
+        }
+      }
+
+      async function loadCategories() {
+        const response = await fetch("/api/categories");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to load categories");
+        }
+
+        renderCategoriesAdmin(data.data || []);
+        setCategoryStatus(`Loaded ${data.count || 0} category(ies)`);
+      }
+
+      async function addCategory() {
+        const name = normalizeCategoryNameInput(newCategoryNameEl.value);
+        if (!name) {
+          throw new Error("Category name is required");
+        }
+
+        const response = await fetch("/api/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Add category failed");
+        }
+
+        newCategoryNameEl.value = "";
+        await loadCategories();
+        setCategoryStatus(
+          `Added category: ${formatCategoryDisplayName(data.data.name)}`,
+        );
+      }
+
+      async function deleteCategoryById(id) {
+        const response = await fetch(`/api/categories/${id}`, {
+          method: "DELETE",
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Delete category failed");
+        }
+
+        await loadCategories();
+        setCategoryStatus(
+          `Deleted category: ${formatCategoryDisplayName(data.data.name)}`,
+        );
+      }
+
+      async function saveCategoryDefaults(
+        id,
+        values,
+        renameTransactions = false,
+      ) {
+        const response = await fetch(`/api/categories/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: values.name,
+            categoryType: values.categoryType,
+            defaultAmount: values.parsed,
+            budgetAmount: values.budget,
+            defaultDueDay: values.dueDay,
+            notes: values.notes,
+            renameTransactions,
+          }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          const error = new Error(data.error || "Save category failed");
+          if (data.code) {
+            error.code = data.code;
+          }
+
+          if (data.transactionCount !== undefined) {
+            error.transactionCount = data.transactionCount;
+          }
+
+          throw error;
+        }
+
+        await loadCategories();
+        const renamedTransactionCount = Number(
+          data.renamedTransactionCount || 0,
+        );
+        if (renamedTransactionCount > 0) {
+          const label =
+            renamedTransactionCount === 1 ? "transaction" : "transactions";
+          setCategoryStatus(
+            `Saved category: ${formatCategoryDisplayName(data.data.name)}. Updated ${renamedTransactionCount} ${label}.`,
+          );
+          return;
+        }
+
+        setCategoryStatus(
+          `Saved category: ${formatCategoryDisplayName(data.data.name)}`,
+        );
+      }
+
+      function getCategoryById(categoryId) {
+        return currentCategories.find((item) => item.id === categoryId) || null;
+      }
+
+      function getCategoryFieldInputs(indexValue) {
+        const nameInput = categoriesBody.querySelector(
+          `[data-category-name-index="${indexValue}"]`,
+        );
+        const input = categoriesBody.querySelector(
+          `[data-category-input-index="${indexValue}"]`,
+        );
+        const budgetInput = categoriesBody.querySelector(
+          `[data-category-budget-index="${indexValue}"]`,
+        );
+        const typeInput = categoriesBody.querySelector(
+          `[data-category-type-index="${indexValue}"]`,
+        );
+        const dueDayInput = categoriesBody.querySelector(
+          `[data-category-due-day-index="${indexValue}"]`,
+        );
+        const notesInput = categoriesBody.querySelector(
+          `[data-category-notes-index="${indexValue}"]`,
+        );
+        const nameIndicator = categoriesBody.querySelector(
+          `[data-category-name-indicator-index="${indexValue}"]`,
+        );
+        const saveButton = categoriesBody.querySelector(
+          `button[data-category-action="save"][data-category-index="${indexValue}"]`,
+        );
+
+        if (!(nameInput instanceof HTMLInputElement)) {
+          setCategoryStatus("Category name input not found.", true);
+          return null;
+        }
+
+        if (!(input instanceof HTMLInputElement)) {
+          setCategoryStatus("Default amount input not found.", true);
+          return null;
+        }
+
+        if (!(budgetInput instanceof HTMLInputElement)) {
+          setCategoryStatus("Budget amount input not found.", true);
+          return null;
+        }
+
+        if (!(typeInput instanceof HTMLSelectElement)) {
+          setCategoryStatus("Category type select not found.", true);
+          return null;
+        }
+
+        if (!(dueDayInput instanceof HTMLInputElement)) {
+          setCategoryStatus("Default due day input not found.", true);
+          return null;
+        }
+
+        if (!(notesInput instanceof HTMLTextAreaElement)) {
+          setCategoryStatus("Notes input not found.", true);
+          return null;
+        }
+
+        if (!(nameIndicator instanceof HTMLElement)) {
+          setCategoryStatus("Category name indicator not found.", true);
+          return null;
+        }
+
+        if (!(saveButton instanceof HTMLButtonElement)) {
+          setCategoryStatus("Save button not found.", true);
+          return null;
+        }
+
+        return {
+          nameInput,
+          input,
+          budgetInput,
+          typeInput,
+          dueDayInput,
+          notesInput,
+          nameIndicator,
+          saveButton,
+        };
+      }
+
+      function normalizeOptionalNumber(value) {
+        const raw = String(value ?? "").trim();
+        if (raw === "") {
+          return null;
+        }
+
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? parsed : raw;
+      }
+
+      function normalizeOptionalText(value) {
+        const text = String(value ?? "").trim();
+        return text === "" ? null : text;
+      }
+
+      function updateCategoryRowState(categoryId) {
+        const category = getCategoryById(categoryId);
+        if (!category) {
+          return;
+        }
+
+        const fields = getCategoryFieldInputs(categoryId);
+        if (!fields) {
+          return;
+        }
+
+        const normalizedName = normalizeCategoryNameInput(
+          fields.nameInput.value,
+        );
+        const originalName = normalizeCategoryNameInput(category.name);
+        const nameChanged = normalizedName !== originalName;
+
+        const currentType = fields.typeInput.value;
+        const originalType = category.categoryType || "expense";
+
+        const currentDefaultAmount = normalizeOptionalNumber(
+          fields.input.value,
+        );
+        const originalDefaultAmount =
+          category.defaultAmount === null ||
+          category.defaultAmount === undefined
+            ? null
+            : Number(category.defaultAmount);
+
+        const currentBudgetAmount = normalizeOptionalNumber(
+          fields.budgetInput.value,
+        );
+        const originalBudgetAmount =
+          category.budgetAmount === null || category.budgetAmount === undefined
+            ? null
+            : Number(category.budgetAmount);
+
+        const currentDefaultDueDay = normalizeOptionalNumber(
+          fields.dueDayInput.value,
+        );
+        const originalDefaultDueDay =
+          category.defaultDueDay === null ||
+          category.defaultDueDay === undefined
+            ? null
+            : Number(category.defaultDueDay);
+
+        const currentNotes = normalizeOptionalText(fields.notesInput.value);
+        const originalNotes = normalizeOptionalText(category.notes);
+
+        const dirty =
+          nameChanged ||
+          currentType !== originalType ||
+          currentDefaultAmount !== originalDefaultAmount ||
+          currentBudgetAmount !== originalBudgetAmount ||
+          currentDefaultDueDay !== originalDefaultDueDay ||
+          currentNotes !== originalNotes;
+
+        fields.saveButton.disabled = !dirty;
+        fields.saveButton.title = dirty
+          ? "Save category"
+          : "No changes to save";
+        fields.nameIndicator.hidden = !nameChanged;
+      }
+
+      function getCategoryRowIdFromTarget(target) {
+        if (!(target instanceof HTMLElement)) {
+          return "";
+        }
+
+        const data = target.dataset;
+        return (
+          data.categoryNameIndex ||
+          data.categoryTypeIndex ||
+          data.categoryInputIndex ||
+          data.categoryBudgetIndex ||
+          data.categoryDueDayIndex ||
+          data.categoryNotesIndex ||
+          ""
+        );
+      }
+
+      function closeRenameConfirmModal(confirmed) {
+        if (renameConfirmModalEl.hasAttribute("open")) {
+          renameConfirmModalEl.removeAttribute("open");
+          renameConfirmModalEl.hidden = true;
+        }
+
+        if (typeof renameConfirmResolver === "function") {
+          const resolver = renameConfirmResolver;
+          renameConfirmResolver = null;
+          resolver(confirmed);
+        }
+      }
+
+      function showRenameConfirm(transactionCount, newName) {
+        const countLabel =
+          transactionCount === 1 ? "transaction" : "transactions";
+        renameConfirmSummaryEl.textContent =
+          `This category is used by ${transactionCount} ${countLabel}. ` +
+          `Update those saved transactions to use "${newName}"?`;
+
+        renameConfirmModalEl.hidden = false;
+        renameConfirmModalEl.setAttribute("open", "");
+        renameConfirmCancelBtn.focus();
+
+        return new Promise((resolve) => {
+          renameConfirmResolver = resolve;
+        });
+      }
+
+      function parseAndValidateCategoryValues(fields) {
+        const name = normalizeCategoryNameInput(fields.nameInput.value);
+        const raw = fields.input.value.trim();
+        const parsed = raw === "" ? null : Number(raw);
+        const budgetRaw = fields.budgetInput.value.trim();
+        const budget = budgetRaw === "" ? null : Number(budgetRaw);
+        const categoryType = fields.typeInput.value;
+        const dueDayRaw = fields.dueDayInput.value.trim();
+        const dueDay = dueDayRaw === "" ? null : Number(dueDayRaw);
+        const notes = fields.notesInput.value;
+
+        if (!name) {
+          setCategoryStatus("Category name is required.", true);
+          return null;
+        }
+
+        if (categoryType !== "income" && categoryType !== "expense") {
+          setCategoryStatus("Category type must be income or expense.", true);
+          return null;
+        }
+
+        if (parsed !== null && !Number.isFinite(parsed)) {
+          setCategoryStatus("Default amount must be a valid number.", true);
+          return null;
+        }
+
+        if (budget !== null && !Number.isFinite(budget)) {
+          setCategoryStatus("Budget amount must be a valid number.", true);
+          return null;
+        }
+
+        if (
+          dueDay !== null &&
+          (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31)
+        ) {
+          setCategoryStatus(
+            "Default due day must be an integer from 1 to 31.",
+            true,
+          );
+          return null;
+        }
+
+        return {
+          name,
+          categoryType,
+          parsed,
+          budget,
+          dueDay,
+          notes,
+        };
+      }
+
+      async function handleSaveCategory(category, indexValue) {
+        const fields = getCategoryFieldInputs(indexValue);
+        if (!fields) {
+          return;
+        }
+
+        const values = parseAndValidateCategoryValues(fields);
+        if (!values) {
+          return;
+        }
+
+        try {
+          await saveCategoryDefaults(category.id, values, false);
+        } catch (error) {
+          const code = error?.code;
+          const transactionCount = Number(error?.transactionCount || 0);
+          const isInUseConflict = code === "CATEGORY_IN_USE";
+
+          if (!isInUseConflict) {
+            throw error;
+          }
+
+          const allowRename = await showRenameConfirm(
+            transactionCount,
+            values.name,
+          );
+
+          if (!allowRename) {
+            return;
+          }
+
+          await saveCategoryDefaults(category.id, values, true);
+        }
+      }
+
+      categoriesBody.addEventListener("click", (event) => {
+        const eventTarget = event.target;
+        let targetElement = null;
+        if (eventTarget instanceof Element) {
+          targetElement = eventTarget;
+        } else if (eventTarget instanceof Node) {
+          targetElement = eventTarget.parentElement;
+        }
+
+        if (!(targetElement instanceof Element)) {
+          return;
+        }
+
+        const button = targetElement.closest("button[data-category-action]");
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        const action = button.dataset.categoryAction;
+        const indexValue = button.dataset.categoryIndex;
+
+        if (!action || indexValue === undefined) {
+          return;
+        }
+
+        const category = currentCategories.find(
+          (item) => item.id === indexValue,
+        );
+        if (!category) {
+          setCategoryStatus(
+            "Category no longer available. Refresh and try again.",
+            true,
+          );
+          return;
+        }
+
+        if (action === "save") {
+          withCategoryStatus(() => handleSaveCategory(category, indexValue));
+          return;
+        }
+
+        if (action === "delete") {
+          withCategoryStatus(() => deleteCategoryById(category.id));
+        }
+      });
+
+      async function withCategoryStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setCategoryStatus(error.message || String(error), true);
+        }
+      }
+
+      document
+        .getElementById("addCategoryBtn")
+        .addEventListener("click", () => withCategoryStatus(addCategory));
+      document
+        .getElementById("refreshCategoriesBtn")
+        .addEventListener("click", () => withCategoryStatus(loadCategories));
+      categoryFilterInput.addEventListener("input", () => {
+        renderCategoriesAdmin(currentCategories);
+      });
+      categoriesBody.addEventListener("input", (event) => {
+        const target = event.target;
+        const rowId = getCategoryRowIdFromTarget(target);
+
+        if (!rowId) {
+          return;
+        }
+
+        updateCategoryRowState(rowId);
+      });
+      categoriesBody.addEventListener("change", (event) => {
+        const target = event.target;
+        const rowId = getCategoryRowIdFromTarget(target);
+
+        if (!rowId) {
+          return;
+        }
+
+        updateCategoryRowState(rowId);
+      });
+      renameConfirmCancelBtn.addEventListener("click", () => {
+        closeRenameConfirmModal(false);
+      });
+      renameConfirmProceedBtn.addEventListener("click", () => {
+        closeRenameConfirmModal(true);
+      });
+      renameConfirmModalEl.addEventListener("click", (event) => {
+        if (event.target === renameConfirmModalEl) {
+          closeRenameConfirmModal(false);
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (
+          event.key === "Escape" &&
+          renameConfirmModalEl.hasAttribute("open")
+        ) {
+          closeRenameConfirmModal(false);
+        }
+      });
+
+      withCategoryStatus(loadCategories);
+    </script>
+    <script src="/auth-client.js"></script>
+  </body>
+</html>

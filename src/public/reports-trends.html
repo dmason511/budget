@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Category Trends</title>
+    <link rel="stylesheet" href="/common.css" />
+    <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+      integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Category Trend Report</h1>
+      <p class="sub">
+        Line chart by category for the selected year. X-axis is month and each
+        line represents a category.
+      </p>
+
+      <section class="card">
+        <div class="grid">
+          <label>
+            Year
+            <select id="yearSelect"></select>
+          </label>
+        </div>
+        <div class="actions nowrap-actions">
+          <button id="loadBtn">Load Chart</button>
+          <a class="button-link secondary-link" href="/reports/trends-data"
+            >View Trends Data</a
+          >
+          <a class="button-link secondary-link" href="/reports">Reports Home</a>
+        </div>
+        <div class="status" id="status"></div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <canvas
+          id="categoryChart"
+          aria-label="Category monthly line chart"
+        ></canvas>
+      </section>
+    </main>
+
+    <script>
+      const yearSelect = document.getElementById("yearSelect");
+      const statusEl = document.getElementById("status");
+      const chartCanvas = document.getElementById("categoryChart");
+
+      let categoryChart;
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(value || 0));
+      }
+
+      function buildColor(index) {
+        const hue = (index * 31) % 360;
+        return `hsl(${hue} 65% 45%)`;
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      async function loadYears() {
+        const response = await fetch("/api/reports/available-periods");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load years");
+        }
+
+        const years = payload.data?.years || [];
+        yearSelect.innerHTML = "";
+
+        if (!years.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No years available";
+          yearSelect.appendChild(option);
+          yearSelect.disabled = true;
+          return false;
+        }
+
+        yearSelect.disabled = false;
+
+        for (const year of years) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          yearSelect.appendChild(option);
+        }
+
+        return true;
+      }
+
+      function renderChart(categories, datasets, year) {
+        if (categoryChart) {
+          categoryChart.destroy();
+        }
+
+        const monthLabels = datasets.map((set) => set.label);
+        const categoryDatasets = categories.map((category, categoryIndex) => {
+          const color = buildColor(categoryIndex);
+
+          return {
+            label: formatCategoryDisplayName(category),
+            data: datasets.map((set) => Number(set.data[categoryIndex] || 0)),
+            borderColor: color,
+            backgroundColor: color,
+            tension: 0.25,
+            pointRadius: 3,
+          };
+        });
+
+        categoryChart = new Chart(chartCanvas, {
+          type: "line",
+          data: {
+            labels: monthLabels,
+            datasets: categoryDatasets,
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+              title: {
+                display: true,
+                text: `Monthly Totals by Category (${year})`,
+              },
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Month",
+                },
+              },
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "Amount (by category)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      async function loadChart() {
+        const year = yearSelect.value;
+
+        if (!year) {
+          throw new Error("Select a year first");
+        }
+
+        const response = await fetch(
+          `/api/reports/category-monthly?year=${year}`,
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load chart data");
+        }
+
+        const categories = payload.categories || [];
+        const datasets = payload.datasets || [];
+
+        if (!categories.length) {
+          if (categoryChart) {
+            categoryChart.destroy();
+            categoryChart = undefined;
+          }
+          setStatus(
+            "No transaction categories found for the selected year",
+            true,
+          );
+          return;
+        }
+
+        renderChart(categories, datasets, year);
+        setStatus(`Loaded ${categories.length} category line(s) for ${year}`);
+      }
+
+      async function initialize() {
+        const hasYears = await loadYears();
+
+        if (!hasYears) {
+          setStatus("No transaction years available yet", true);
+          return;
+        }
+
+        await loadChart();
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      document
+        .getElementById("loadBtn")
+        .addEventListener("click", () => withStatus(loadChart));
+
+      withStatus(initialize);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>

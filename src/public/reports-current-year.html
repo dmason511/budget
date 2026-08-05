@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Current Year Account Report</title>
+    <link rel="stylesheet" href="/common.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Current Year Account Status by Category</h1>
+      <p class="sub" id="reportLabel"></p>
+
+      <section class="card">
+        <div class="actions" style="margin-top: 0">
+          <a class="button-link secondary-link" href="/reports"
+            >Back to Reports</a
+          >
+          <button id="refreshBtn" class="secondary">Refresh</button>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="sub" id="totalsSummary" style="margin-top: 10px"></div>
+        <div class="sub" id="balanceSummary" style="margin-top: 6px"></div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Type</th>
+              <th>Total Amount</th>
+              <th>Transaction Count</th>
+            </tr>
+          </thead>
+          <tbody id="rowsBody"></tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Total</th>
+              <th scope="row"></th>
+              <th scope="row" id="grandTotalCell"></th>
+              <th scope="row"></th>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const rowsBody = document.getElementById("rowsBody");
+      const statusEl = document.getElementById("status");
+      const reportLabel = document.getElementById("reportLabel");
+      const grandTotalCell = document.getElementById("grandTotalCell");
+      const totalsSummary = document.getElementById("totalsSummary");
+      const balanceSummary = document.getElementById("balanceSummary");
+      const currentYear = new Date().getFullYear();
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: "USD",
+        }).format(Number(value || 0));
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function formatCategoryDisplayName(value) {
+        return value === "uncategorized"
+          ? "Uncategorized"
+          : String(value || "");
+      }
+
+      function formatType(value) {
+        return value === "income" ? "Income" : "Expense";
+      }
+
+      function renderRows(rows, totals, balance) {
+        rowsBody.innerHTML = "";
+
+        const safeTotals = {
+          income: Number(totals?.income || 0),
+          expense: Number(totals?.expense || 0),
+          net: Number(totals?.net || 0),
+        };
+        const safeBalance = {
+          opening: Number(balance?.opening || 0),
+          periodNet: Number(balance?.periodNet || 0),
+          closing: Number(balance?.closing || 0),
+        };
+
+        grandTotalCell.textContent = formatCurrency(safeTotals.net);
+        totalsSummary.textContent = `Income: ${formatCurrency(safeTotals.income)} | Expense: ${formatCurrency(safeTotals.expense)} | Net: ${formatCurrency(safeTotals.net)}`;
+        balanceSummary.textContent = `Opening Balance: ${formatCurrency(safeBalance.opening)} | Period Net: ${formatCurrency(safeBalance.periodNet)} | Closing Balance: ${formatCurrency(safeBalance.closing)}`;
+
+        if (!rows.length) {
+          rowsBody.innerHTML =
+            '<tr><td colspan="4" style="text-align:center;color:#6b7280">No transactions for this year</td></tr>';
+          return;
+        }
+
+        for (const row of rows) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(formatCategoryDisplayName(row.category))}</td>
+            <td>${escapeHtml(formatType(row.categoryType))}</td>
+            <td>${escapeHtml(formatCurrency(row.totalAmount))}</td>
+            <td>${escapeHtml(row.transactionCount)}</td>
+          `;
+          rowsBody.appendChild(tr);
+        }
+      }
+
+      async function loadReport() {
+        const response = await fetch(
+          `/api/reports/category-expenses?year=${currentYear}`,
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load report");
+        }
+
+        reportLabel.textContent = `Year: ${payload.period.year}`;
+        renderRows(
+          payload.data || [],
+          payload.totals || {},
+          payload.balance || {},
+        );
+        setStatus(`Loaded ${payload.count || 0} category row(s)`);
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      document
+        .getElementById("refreshBtn")
+        .addEventListener("click", () => withStatus(loadReport));
+
+      withStatus(loadReport);
+    </script>
+      <script src="/auth-client.js"></script>
+  </body>
+</html>
