@@ -66,6 +66,7 @@ function toResponse(transaction) {
     amount: transaction.amount,
     category: transaction.category,
     date: transaction.date,
+    notes: transaction.notes || "",
     createdAt: transaction.created_at,
     updatedAt: transaction.updated_at,
   };
@@ -93,6 +94,10 @@ function validatePayload(body) {
     return "category must be a string";
   }
 
+  if (body.notes !== undefined && typeof body.notes !== "string") {
+    return "notes must be a string";
+  }
+
   if (body.date !== undefined) {
     const normalizedDate = normalizeDateValue(body.date);
     if (normalizedDate.invalid) {
@@ -107,7 +112,7 @@ router.get("/", async (_req, res, next) => {
   try {
     const rows = await all(
       `
-      SELECT id, description, amount, category, date, created_at, updated_at
+      SELECT id, description, amount, category, date, notes, created_at, updated_at
       FROM transactions
       ORDER BY created_at DESC
       `,
@@ -128,7 +133,7 @@ router.get("/:id", async (req, res, next) => {
   try {
     const transaction = await get(
       `
-      SELECT id, description, amount, category, date, created_at, updated_at
+      SELECT id, description, amount, category, date, notes, created_at, updated_at
       FROM transactions
       WHERE id = ?
       `,
@@ -163,6 +168,7 @@ router.post("/", async (req, res, next) => {
       amount: Number(req.body.amount),
       category: req.body.category ? req.body.category.trim() : "uncategorized",
       date: normalizedDate.value || getCurrentLocalDateValue(),
+      notes: typeof req.body.notes === "string" ? req.body.notes.trim() : "",
       createdAt: new Date().toISOString(),
       updatedAt: null,
     };
@@ -175,9 +181,10 @@ router.post("/", async (req, res, next) => {
         amount,
         category,
         date,
+        notes,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         transaction.id,
@@ -185,6 +192,7 @@ router.post("/", async (req, res, next) => {
         transaction.amount,
         transaction.category,
         transaction.date,
+        transaction.notes,
         transaction.createdAt,
         transaction.updatedAt,
       ],
@@ -200,7 +208,7 @@ router.put("/:id", async (req, res, next) => {
   try {
     const existing = await get(
       `
-      SELECT id, description, amount, category, date, created_at, updated_at
+      SELECT id, description, amount, category, date, notes, created_at, updated_at
       FROM transactions
       WHERE id = ?
       `,
@@ -225,6 +233,10 @@ router.put("/:id", async (req, res, next) => {
       amount: Number(req.body.amount),
       category: req.body.category ? req.body.category.trim() : "uncategorized",
       date: normalizeDateValue(req.body?.date).value || existing.date,
+      notes:
+        typeof req.body.notes === "string"
+          ? req.body.notes.trim()
+          : existing.notes || "",
       createdAt: existing.created_at,
       updatedAt: new Date().toISOString(),
     };
@@ -232,7 +244,7 @@ router.put("/:id", async (req, res, next) => {
     await run(
       `
       UPDATE transactions
-      SET description = ?, amount = ?, category = ?, date = ?, updated_at = ?
+      SET description = ?, amount = ?, category = ?, date = ?, notes = ?, updated_at = ?
       WHERE id = ?
       `,
       [
@@ -240,6 +252,7 @@ router.put("/:id", async (req, res, next) => {
         updated.amount,
         updated.category,
         updated.date,
+        updated.notes,
         updated.updatedAt,
         updated.id,
       ],

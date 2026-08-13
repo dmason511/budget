@@ -179,7 +179,13 @@
           <a class="nav-link" href="/categories">Categories</a>
           <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
           <a class="nav-link" href="/reports">Reports</a>
-                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
         </nav>
       </div>
     </header>
@@ -221,6 +227,13 @@
             <label class="field description-field">
               Description
               <input id="description" type="text" />
+            </label>
+            <label class="field notes-field">
+              Notes
+              <textarea
+                id="notes"
+                style="resize: vertical; min-height: 80px"
+              ></textarea>
             </label>
           </div>
 
@@ -396,6 +409,8 @@
       const pageInfoEl = document.getElementById("pageInfo");
       const rowFilterInput = document.getElementById("rowFilterInput");
       const refreshRowsBtn = document.getElementById("refreshRowsBtn");
+      const createBtn = document.getElementById("createBtn");
+      const updateBtn = document.getElementById("updateBtn");
       const sortHeaderButtons = document.querySelectorAll(".sort-header");
       let selectedTransactionId = null;
       let allRows = [];
@@ -414,6 +429,7 @@
         category: document.getElementById("category"),
         dueDay: document.getElementById("dueDay"),
         date: document.getElementById("date"),
+        notes: document.getElementById("notes"),
       };
 
       function escapeHtml(value) {
@@ -436,6 +452,14 @@
         return value === "uncategorized"
           ? "Uncategorized"
           : String(value || "");
+      }
+
+      function formatCurrency(value) {
+        const amount = Number(value) || 0;
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(amount);
       }
 
       function getCurrentLocalDateValue() {
@@ -487,11 +511,63 @@
         fields.category.value = "";
         fields.dueDay.value = "";
         fields.date.value = getCurrentLocalDateValue();
+        fields.notes.value = "";
+        applyDefaultAmountForSelectedCategory();
+      }
+
+      function updateButtonStates() {
+        if (selectedTransactionId) {
+          createBtn.disabled = true;
+          createBtn.classList.add("secondary");
+          updateBtn.disabled = false;
+          updateBtn.classList.remove("secondary");
+        } else {
+          createBtn.disabled = false;
+          createBtn.classList.remove("secondary");
+          updateBtn.disabled = true;
+          updateBtn.classList.add("secondary");
+        }
+      }
+
+      function showUpdateConfirmation(transaction) {
+        const closeBtn = document.createElement("button");
+        closeBtn.style.cssText =
+          "background: none; border: none; color: inherit; cursor: pointer; font-size: 1.2em; padding: 0; line-height: 1; margin-left: 10px;";
+        closeBtn.textContent = "×";
+        closeBtn.addEventListener("click", () => {
+          statusEl.classList.remove("show");
+        });
+
+        const details = document.createElement("div");
+        details.innerHTML = `
+          <strong>${escapeHtml(toTitleCaseWords(transaction.description))}</strong><br/>
+          ${escapeHtml(formatCurrency(transaction.amount))} • ${escapeHtml(formatCategoryDisplayName(transaction.category))}
+        `;
+
+        const messageDiv = document.createElement("div");
+        messageDiv.style.cssText =
+          "display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;";
+        messageDiv.appendChild(details);
+        messageDiv.appendChild(closeBtn);
+
+        statusEl.innerHTML = "";
+        statusEl.appendChild(messageDiv);
+        statusEl.classList.remove("error");
+        statusEl.classList.add("show");
+
+        if (statusTimeout) {
+          clearTimeout(statusTimeout);
+        }
+
+        statusTimeout = setTimeout(() => {
+          statusEl.classList.remove("show");
+        }, 5000);
       }
 
       function clearSelection() {
         selectedTransactionId = null;
         selectedRowEl.textContent = "Selected row: none";
+        updateButtonStates();
       }
 
       function fillFormFromRow(row) {
@@ -509,6 +585,9 @@
         } else {
           fields.date.value = "";
         }
+
+        fields.notes.value = row.notes || "";
+        updateButtonStates();
       }
 
       function setStatus(message, isError = false) {
@@ -565,6 +644,11 @@
       function renderCategoryOptions(categories, selectedName = "") {
         fields.category.innerHTML = "";
 
+        const blankOption = document.createElement("option");
+        blankOption.value = "";
+        blankOption.textContent = "-- Select a category --";
+        fields.category.appendChild(blankOption);
+
         for (const category of categories) {
           const option = document.createElement("option");
           option.value = category.name;
@@ -584,8 +668,8 @@
 
         if (selectedName) {
           fields.category.value = selectedName;
-        } else if (categories.length) {
-          fields.category.value = categories[0].name;
+        } else {
+          fields.category.value = "";
         }
 
         resizeSelectToLongestOption(fields.category);
@@ -614,6 +698,10 @@
       }
 
       function payloadFromForm() {
+        if (!fields.category.value) {
+          throw new Error("Category is required");
+        }
+
         const parsedAmount = Number(fields.amount.value);
         if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
           throw new Error("Amount must be greater than 0");
@@ -623,6 +711,7 @@
           description: toTitleCaseWords(fields.description.value),
           amount: parsedAmount,
           category: fields.category.value,
+          notes: fields.notes.value,
         };
 
         if (fields.date.value) {
@@ -648,7 +737,7 @@
 
       function getSortValue(row, field) {
         if (field === "notes") {
-          return getCategoryNotesByName(row.category) || "";
+          return row.notes || "";
         }
 
         if (field === "amount") {
@@ -676,7 +765,7 @@
           row.description,
           row.amount,
           row.category,
-          getCategoryNotesByName(row.category),
+          row.notes,
           row.date,
           row.createdAt,
           row.updatedAt,
@@ -723,7 +812,17 @@
           let comparison;
 
           if (typeof valueA === "number" || valueA === null) {
-            comparison = compareNullableNumbers(valueA, valueB);
+            // For numbers/dates, handle nulls by always putting them at the end
+            if (valueA === null && valueB === null) {
+              comparison = 0;
+            } else if (valueA === null) {
+              return 1; // a always goes to the end
+            } else if (valueB === null) {
+              return -1; // b goes to the end, a stays ahead
+            } else {
+              // Both non-null, compare numerically
+              comparison = valueA - valueB;
+            }
           } else {
             comparison = String(valueA).localeCompare(
               String(valueB),
@@ -811,9 +910,9 @@
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(toTitleCaseWords(row.description))}</td>
-            <td>${escapeHtml(row.amount)}</td>
+            <td style="text-align: right">${escapeHtml(formatCurrency(row.amount))}</td>
             <td>${escapeHtml(formatCategoryDisplayName(row.category))}</td>
-            <td>${escapeHtml(getCategoryNotesByName(row.category))}</td>
+            <td>${escapeHtml(row.notes || "")}</td>
             <td>${escapeHtml(formatLocalDate(row.date))}</td>
             <td>${escapeHtml(formatLocalDate(row.createdAt))}</td>
             <td>${escapeHtml(formatLocalDate(row.updatedAt))}</td>
@@ -885,6 +984,8 @@
           throw new Error("Select a row with Edit before updating");
         }
 
+        const updatedId = selectedTransactionId;
+
         const response = await fetch(
           `/api/transactions/${selectedTransactionId}`,
           {
@@ -900,8 +1001,10 @@
           throw new Error(data.error || "Update failed");
         }
 
-        setStatus("Updated selected row");
+        clearSelection();
+        resetForm();
         await readAll();
+        showUpdateConfirmation(data.data);
       }
 
       async function deleteTransactionById(id) {
@@ -1083,9 +1186,10 @@
       });
 
       resetForm();
+      updateButtonStates();
       withStatus(loadCategories);
       withStatus(readAll);
     </script>
-      <script src="/auth-client.js"></script>
+    <script src="/auth-client.js"></script>
   </body>
 </html>

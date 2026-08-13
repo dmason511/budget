@@ -116,14 +116,23 @@ const migrations = [
       WHERE budget_amount IS NULL
     `,
   },
+  {
+    id: "014_add_transaction_notes",
+    sql: `
+      ALTER TABLE transactions
+      ADD COLUMN notes TEXT
+    `,
+  },
 ];
 
 const dbByPath = new Map();
 const LEGACY_DATE_NORMALIZATION_MIGRATION_ID =
-  "014_normalize_legacy_transaction_dates_to_zulu";
+  "015_normalize_legacy_transaction_dates_to_zulu";
 
 function normalizeTenantId(tenantId) {
-  const normalized = String(tenantId || "default").trim().toLowerCase();
+  const normalized = String(tenantId || "default")
+    .trim()
+    .toLowerCase();
   if (!normalized || !/^[a-z0-9_-]+$/.test(normalized)) {
     return "default";
   }
