@@ -5,6 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Budget Trend Data</title>
     <link rel="stylesheet" href="/common.css" />
+    <style>
+      .category-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .type-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .type-chip-income {
+        background: #dcfce7;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+      }
+
+      .type-chip-expense {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+
+      .trend-row-income {
+        background: rgba(220, 252, 231, 0.35);
+      }
+
+      .trend-row-expense {
+        background: rgba(254, 226, 226, 0.3);
+      }
+
+      .amount-income {
+        color: #166534;
+        font-weight: 600;
+      }
+
+      .amount-expense {
+        color: #991b1b;
+        font-weight: 600;
+      }
+
+      .amount-neutral-positive {
+        color: #166534;
+      }
+
+      .amount-neutral-negative {
+        color: #991b1b;
+      }
+    </style>
   </head>
   <body>
     <header class="topbar">
@@ -15,7 +71,13 @@
           <a class="nav-link" href="/categories">Categories</a>
           <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
           <a class="nav-link active" href="/reports">Reports</a>
-                  <button type="button" class="nav-link nav-link-button" data-auth-logout>Sign Out</button>
+          <button
+            type="button"
+            class="nav-link nav-link-button"
+            data-auth-logout
+          >
+            Sign Out
+          </button>
         </nav>
       </div>
     </header>
@@ -65,8 +127,18 @@
       let currentTrendData = {
         year: "",
         categories: [],
+        categoryTypes: [],
         datasets: [],
       };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
 
       function setStatus(message, isError = false) {
         statusEl.textContent = message;
@@ -84,6 +156,52 @@
         return value === "uncategorized"
           ? "Uncategorized"
           : String(value || "");
+      }
+
+      function normalizeCategoryType(value) {
+        return value === "income" ? "income" : "expense";
+      }
+
+      function formatSignedCurrency(value, categoryType) {
+        const amount = Math.abs(Number(value || 0));
+        const sign = categoryType === "income" ? "+" : "-";
+        return `${sign}${formatCurrency(amount)}`;
+      }
+
+      function formatTypeChip(type) {
+        if (type === "income") {
+          return '<span class="type-chip type-chip-income">&#8593; Income</span>';
+        }
+
+        return '<span class="type-chip type-chip-expense">&#8595; Expense</span>';
+      }
+
+      function getNeutralAmountClass(value) {
+        if (value > 0) {
+          return "amount-neutral-positive";
+        }
+
+        if (value < 0) {
+          return "amount-neutral-negative";
+        }
+
+        return "";
+      }
+
+      function getCategoryAmountClass(categoryType) {
+        if (categoryType === "income") {
+          return "amount-income";
+        }
+
+        return "amount-expense";
+      }
+
+      function getCategoryRowClass(categoryType) {
+        if (categoryType === "income") {
+          return "trend-row-income";
+        }
+
+        return "trend-row-expense";
       }
 
       async function loadYears() {
@@ -135,11 +253,13 @@
         }
 
         const categories = payload.categories || [];
+        const categoryTypes = payload.categoryTypes || [];
         const datasets = payload.datasets || [];
 
         currentTrendData = {
           year,
           categories,
+          categoryTypes,
           datasets,
         };
 
@@ -186,6 +306,9 @@
         }
 
         for (const [categoryIndex, category] of categories.entries()) {
+          const categoryType = normalizeCategoryType(
+            currentTrendData.categoryTypes[categoryIndex],
+          );
           let categoryTotal = 0;
           let nonZeroCount = 0;
 
@@ -197,38 +320,50 @@
                 nonZeroCount += 1;
               }
               monthTotals[monthIndex] += value;
-              return `<td>${formatCurrency(value)}</td>`;
+              const valueClass = getCategoryAmountClass(categoryType);
+              return `<td class="${valueClass}">${formatSignedCurrency(value, categoryType)}</td>`;
             })
             .join("");
 
-          const categoryAverage =
-            nonZeroCount > 0 ? categoryTotal / nonZeroCount : 0;
+          let categoryAverage = 0;
+          if (nonZeroCount > 0) {
+            categoryAverage = categoryTotal / nonZeroCount;
+          }
 
           const tr = document.createElement("tr");
+          tr.className = getCategoryRowClass(categoryType);
+          const averageClass = getCategoryAmountClass(categoryType);
           tr.innerHTML = `
-            <td>${formatCategoryDisplayName(category)}</td>
+            <td>
+              <span class="category-cell">
+                <span>${escapeHtml(formatCategoryDisplayName(category))}</span>
+                ${formatTypeChip(categoryType)}
+              </span>
+            </td>
             ${monthCells}
-            <td><strong>${formatCurrency(categoryAverage)}</strong></td>
+            <td class="${averageClass}"><strong>${formatSignedCurrency(categoryAverage, categoryType)}</strong></td>
           `;
           trendTableBody.appendChild(tr);
         }
 
         const totalsRow = document.createElement("tr");
         const nonZeroMonthTotals = monthTotals.filter((value) => value !== 0);
-        const grandAverage =
-          nonZeroMonthTotals.length > 0
-            ? nonZeroMonthTotals.reduce((sum, value) => sum + value, 0) /
-              nonZeroMonthTotals.length
-            : 0;
+        let grandAverage = 0;
+        if (nonZeroMonthTotals.length > 0) {
+          grandAverage =
+            nonZeroMonthTotals.reduce((sum, value) => sum + value, 0) /
+            nonZeroMonthTotals.length;
+        }
 
         totalsRow.innerHTML = `
           <td><strong>Total</strong></td>
           ${monthTotals
-            .map(
-              (value) => `<td><strong>${formatCurrency(value)}</strong></td>`,
-            )
+            .map((value) => {
+              const neutralClass = getNeutralAmountClass(value);
+              return `<td class="${neutralClass}"><strong>${formatCurrency(value)}</strong></td>`;
+            })
             .join("")}
-          <td><strong>${formatCurrency(grandAverage)}</strong></td>
+          <td class="${getNeutralAmountClass(grandAverage)}"><strong>${formatCurrency(grandAverage)}</strong></td>
         `;
         trendTableBody.appendChild(totalsRow);
       }
@@ -258,6 +393,6 @@
 
       withStatus(initialize);
     </script>
-      <script src="/auth-client.js"></script>
+    <script src="/auth-client.js"></script>
   </body>
 </html>

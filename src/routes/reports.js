@@ -57,6 +57,10 @@ function normalizedTransactionDateSql(columnExpression) {
   return `(CASE WHEN length(${columnExpression}) = 10 THEN ${columnExpression} ELSE date(${columnExpression}, 'localtime') END)`;
 }
 
+function normalizedCategoryKeySql(columnExpression) {
+  return `lower(trim(${columnExpression}))`;
+}
+
 router.get("/available-periods", async (_req, res, next) => {
   try {
     const transactionDateSql = normalizedTransactionDateSql("date");
@@ -126,14 +130,15 @@ router.get("/category-expenses", async (req, res, next) => {
     const rows = await all(
       `
       SELECT
-        t.category AS category,
+        COALESCE(c.name, trim(t.category)) AS category,
         COALESCE(c.category_type, 'expense') AS category_type,
         ROUND(SUM(ABS(t.amount)), 2) AS total_amount,
         COUNT(*) AS transaction_count
       FROM transactions t
-      LEFT JOIN categories c ON c.name = t.category
+      LEFT JOIN categories c
+        ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("t.category")}
       ${whereSql}
-      GROUP BY t.category, COALESCE(c.category_type, 'expense')
+      GROUP BY COALESCE(c.name, trim(t.category)), COALESCE(c.category_type, 'expense')
       ORDER BY total_amount DESC, category COLLATE NOCASE ASC
       `,
       params,
@@ -163,7 +168,8 @@ router.get("/category-expenses", async (req, res, next) => {
         END
       ), 0), 2) AS balance
       FROM transactions t
-      LEFT JOIN categories c ON c.name = t.category
+      LEFT JOIN categories c
+        ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("t.category")}
       WHERE julianday(${transactionDateSql}) < julianday(?)
       `,
       [startIso],
@@ -178,7 +184,8 @@ router.get("/category-expenses", async (req, res, next) => {
         END
       ), 0), 2) AS balance
       FROM transactions t
-      LEFT JOIN categories c ON c.name = t.category
+      LEFT JOIN categories c
+        ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("t.category")}
       WHERE julianday(${transactionDateSql}) >= julianday(?)
         AND julianday(${transactionDateSql}) < julianday(?)
       `,
@@ -225,7 +232,8 @@ router.get("/category-monthly", async (req, res, next) => {
     const rows = await all(
       `
       SELECT
-        t.category AS category,
+        COALESCE(c.name, trim(t.category)) AS category,
+        COALESCE(c.category_type, 'expense') AS category_type,
         CAST(strftime('%m', ${normalizedTransactionDateSql("t.date")}) AS INTEGER) AS month,
         ROUND(
           SUM(
@@ -237,21 +245,30 @@ router.get("/category-monthly", async (req, res, next) => {
           2
         ) AS total_amount
       FROM transactions t
-      LEFT JOIN categories c ON c.name = t.category
+      LEFT JOIN categories c
+        ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("t.category")}
       WHERE strftime('%Y', ${normalizedTransactionDateSql("t.date")}) = ?
-      GROUP BY t.category, CAST(strftime('%m', ${normalizedTransactionDateSql("t.date")}) AS INTEGER)
-      ORDER BY t.category COLLATE NOCASE ASC, month ASC
+      GROUP BY COALESCE(c.name, trim(t.category)), COALESCE(c.category_type, 'expense'), CAST(strftime('%m', ${normalizedTransactionDateSql("t.date")}) AS INTEGER)
+      ORDER BY category COLLATE NOCASE ASC, month ASC
       `,
       [String(year)],
     );
 
     const categories = [];
     const categorySet = new Set();
+    const categoryTypesByName = new Map();
 
     for (const row of rows) {
       if (!categorySet.has(row.category)) {
         categorySet.add(row.category);
         categories.push(row.category);
+      }
+
+      if (!categoryTypesByName.has(row.category)) {
+        categoryTypesByName.set(
+          row.category,
+          row.category_type === "income" ? "income" : "expense",
+        );
       }
     }
 
@@ -295,6 +312,9 @@ router.get("/category-monthly", async (req, res, next) => {
     res.status(200).json({
       period: { year },
       categories,
+      categoryTypes: categories.map(
+        (category) => categoryTypesByName.get(category) || "expense",
+      ),
       datasets,
     });
   } catch (error) {
@@ -328,7 +348,7 @@ router.get("/category-budget-comparison", async (req, res, next) => {
       `
       WITH period_transactions AS (
         SELECT
-          t.category AS category,
+          trim(t.category) AS category,
           ROUND(SUM(ABS(t.amount)), 2) AS actual_amount,
           COUNT(*) AS transaction_count
         FROM transactions t
@@ -344,7 +364,8 @@ router.get("/category-budget-comparison", async (req, res, next) => {
           ROUND(COALESCE(pt.actual_amount, 0), 2) AS actual_amount,
           COALESCE(pt.transaction_count, 0) AS transaction_count
         FROM categories c
-        LEFT JOIN period_transactions pt ON pt.category = c.name
+        LEFT JOIN period_transactions pt
+          ON ${normalizedCategoryKeySql("pt.category")} = ${normalizedCategoryKeySql("c.name")}
 
         UNION ALL
 
@@ -355,7 +376,8 @@ router.get("/category-budget-comparison", async (req, res, next) => {
           ROUND(pt.actual_amount, 2) AS actual_amount,
           pt.transaction_count AS transaction_count
         FROM period_transactions pt
-        LEFT JOIN categories c ON c.name = pt.category
+        LEFT JOIN categories c
+          ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("pt.category")}
         WHERE c.id IS NULL
       )
       SELECT
