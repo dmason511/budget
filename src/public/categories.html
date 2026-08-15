@@ -301,7 +301,6 @@
         }
 
         for (const category of visibleCategories) {
-          const isLocked = category.name === "uncategorized";
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>
@@ -310,8 +309,6 @@
                   type="text"
                   value="${escapeHtml(category.name)}"
                   data-category-name-index="${category.id}"
-                  ${isLocked ? "readonly" : ""}
-                  ${isLocked ? 'style="text-transform: capitalize"' : ""}
                 />
                 <span
                   class="category-rename-indicator"
@@ -380,7 +377,6 @@
                 data-category-action="delete"
                 data-category-index="${category.id}"
                 aria-label="Delete category"
-                ${isLocked ? "disabled" : ""}
                 title="Delete category"
               >
                 &#128465;
@@ -435,13 +431,26 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || "Delete category failed");
+          const error = new Error(data.error || "Delete category failed");
+          if (data.code) {
+            error.code = data.code;
+          }
+
+          if (data.transactionCount !== undefined) {
+            error.transactionCount = data.transactionCount;
+          }
+
+          throw error;
         }
 
         await loadCategories();
         setCategoryStatus(
           `Deleted category: ${formatCategoryDisplayName(data.data.name)}`,
         );
+      }
+
+      async function handleDeleteCategory(category) {
+        await deleteCategoryById(category.id);
       }
 
       async function saveCategoryDefaults(
@@ -831,7 +840,7 @@
         }
 
         if (action === "delete") {
-          withCategoryStatus(() => deleteCategoryById(category.id));
+          withCategoryStatus(() => handleDeleteCategory(category));
         }
       });
 

@@ -304,10 +304,6 @@ router.put("/:id", async (req, res, next) => {
       return res.status(400).json({ error: "name is required" });
     }
 
-    if (existing.name === "uncategorized" && requestedName !== existing.name) {
-      return res.status(400).json({ error: "Cannot rename uncategorized" });
-    }
-
     const shouldRenameTransactions = req.body?.renameTransactions === true;
     const renameResult = await processCategoryRename(
       existing,
@@ -369,18 +365,17 @@ router.delete("/:id", async (req, res, next) => {
       return res.status(404).json({ error: "Category not found" });
     }
 
-    if (existing.name === "uncategorized") {
-      return res.status(400).json({ error: "Cannot delete uncategorized" });
-    }
-
     const usage = await get(
       "SELECT COUNT(*) AS count FROM transactions WHERE category = ?",
       [existing.name],
     );
 
     if (usage && usage.count > 0) {
-      return res.status(400).json({
+      return res.status(409).json({
         error: "Cannot delete category in use by existing transactions",
+        code: "CATEGORY_IN_USE",
+        transactionCount: usage.count,
+        currentName: existing.name,
       });
     }
 

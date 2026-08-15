@@ -94,6 +94,10 @@ function validatePayload(body) {
     return "category must be a string";
   }
 
+  if (typeof body.category !== "string" || !body.category.trim()) {
+    return "category is required";
+  }
+
   if (body.notes !== undefined && typeof body.notes !== "string") {
     return "notes must be a string";
   }
@@ -166,7 +170,7 @@ router.post("/", async (req, res, next) => {
           ? req.body.description.trim()
           : "",
       amount: Number(req.body.amount),
-      category: req.body.category ? req.body.category.trim() : "uncategorized",
+      category: req.body.category.trim(),
       date: normalizedDate.value || getCurrentLocalDateValue(),
       notes: typeof req.body.notes === "string" ? req.body.notes.trim() : "",
       createdAt: new Date().toISOString(),
@@ -231,7 +235,7 @@ router.put("/:id", async (req, res, next) => {
           ? req.body.description.trim()
           : "",
       amount: Number(req.body.amount),
-      category: req.body.category ? req.body.category.trim() : "uncategorized",
+      category: req.body.category.trim(),
       date: normalizeDateValue(req.body?.date).value || existing.date,
       notes:
         typeof req.body.notes === "string"
