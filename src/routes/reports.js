@@ -322,6 +322,72 @@ router.get("/category-monthly", async (req, res, next) => {
   }
 });
 
+router.get("/monthly-expenses", async (req, res, next) => {
+  try {
+    const year = parseYear(req.query.year);
+    if (year === null) {
+      return res
+        .status(400)
+        .json({ error: "year is required and must be a 4-digit year" });
+    }
+
+    const transactionDateSql = normalizedTransactionDateSql("t.date");
+    const rows = await all(
+      `
+      SELECT c.id, c.name AS category,
+        CAST(strftime('%m', ${transactionDateSql}) AS INTEGER) AS month,
+        ROUND(COALESCE(SUM(ABS(t.amount)), 0), 2) AS total_amount
+      FROM categories c
+      LEFT JOIN transactions t
+        ON ${normalizedCategoryKeySql("c.name")} = ${normalizedCategoryKeySql("t.category")}
+        AND strftime('%Y', ${transactionDateSql}) = ?
+      WHERE c.category_type = 'expense' AND c.include_in_monthly_report = 1
+      GROUP BY c.id, c.name, month
+      ORDER BY c.name COLLATE NOCASE ASC, month ASC
+      `,
+      [String(year)],
+    );
+
+    const categoriesById = new Map();
+    const monthTotalCents = Array(12).fill(0);
+    for (const row of rows) {
+      if (!categoriesById.has(row.id)) {
+        categoriesById.set(row.id, {
+          category: row.category,
+          months: Array(12).fill(0),
+          totalCents: 0,
+        });
+      }
+      if (row.month === null) {
+        continue;
+      }
+
+      const category = categoriesById.get(row.id);
+      const cents = Math.round(row.total_amount * 100);
+      category.months[row.month - 1] = cents / 100;
+      category.totalCents += cents;
+      monthTotalCents[row.month - 1] += cents;
+    }
+
+    const data = Array.from(categoriesById.values(), (category) => ({
+      category: category.category,
+      months: category.months,
+      totalAmount: category.totalCents / 100,
+    }));
+    return res.status(200).json({
+      period: { year },
+      count: data.length,
+      data,
+      totals: {
+        months: monthTotalCents.map((cents) => cents / 100),
+        totalAmount: monthTotalCents.reduce((sum, cents) => sum + cents, 0) / 100,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/category-budget-comparison", async (req, res, next) => {
   try {
     const year = parseYear(req.query.year);

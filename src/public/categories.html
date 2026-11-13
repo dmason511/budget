@@ -6,6 +6,14 @@
     <title>Budget Categories</title>
     <link rel="stylesheet" href="/common.css" />
     <style>
+      .category-monthly-report-checkbox {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        padding: 0;
+        vertical-align: middle;
+      }
+
       .category-name-cell {
         display: grid;
         gap: 4px;
@@ -122,7 +130,10 @@
       <h1>Categories</h1>
       <p class="sub">
         Manage reusable transaction categories. Default Amount and Budget Amount
-        are monthly values.
+        are monthly values. Monthly Report selects expense categories for the
+        <a href="/reports/monthly-expenses">Monthly Expenses report</a>.
+        Categories are included by default; change the
+        checkbox and save the row to preserve your selection.
       </p>
 
       <section class="card">
@@ -169,6 +180,7 @@
               <th>Budget Amount / Month</th>
               <th>Default Due Day</th>
               <th>Notes</th>
+              <th>Monthly Report</th>
               <th>Created</th>
               <th>Actions</th>
             </tr>
@@ -296,7 +308,7 @@
 
         if (!visibleCategories.length) {
           categoriesBody.innerHTML =
-            '<tr><td colspan="8" style="text-align:center;color:#6b7280">No categories found</td></tr>';
+            '<tr><td colspan="9" style="text-align:center;color:#6b7280">No categories found</td></tr>';
           return;
         }
 
@@ -359,6 +371,15 @@
                 placeholder="Optional notes"
                 data-category-notes-index="${category.id}"
               >${escapeHtml(category.notes || "")}</textarea>
+            </td>
+            <td>
+              <input
+                type="checkbox"
+                class="category-monthly-report-checkbox"
+                ${category.includeInMonthlyReport ? "checked" : ""}
+                data-category-monthly-report-index="${category.id}"
+                aria-label="${escapeHtml(category.name)}: include in monthly report"
+              />
             </td>
             <td>${escapeHtml(formatLocalDate(category.createdAt))}</td>
             <td class="row-actions">
@@ -468,6 +489,7 @@
             budgetAmount: values.budget,
             defaultDueDay: values.dueDay,
             notes: values.notes,
+            includeInMonthlyReport: values.includeInMonthlyReport,
             renameTransactions,
           }),
         });
@@ -527,6 +549,9 @@
         const notesInput = categoriesBody.querySelector(
           `[data-category-notes-index="${indexValue}"]`,
         );
+        const monthlyReportInput = categoriesBody.querySelector(
+          `[data-category-monthly-report-index="${indexValue}"]`,
+        );
         const nameIndicator = categoriesBody.querySelector(
           `[data-category-name-indicator-index="${indexValue}"]`,
         );
@@ -564,6 +589,11 @@
           return null;
         }
 
+        if (!(monthlyReportInput instanceof HTMLInputElement)) {
+          setCategoryStatus("Monthly report checkbox not found.", true);
+          return null;
+        }
+
         if (!(nameIndicator instanceof HTMLElement)) {
           setCategoryStatus("Category name indicator not found.", true);
           return null;
@@ -581,6 +611,7 @@
           typeInput,
           dueDayInput,
           notesInput,
+          monthlyReportInput,
           nameIndicator,
           saveButton,
         };
@@ -656,7 +687,8 @@
           currentDefaultAmount !== originalDefaultAmount ||
           currentBudgetAmount !== originalBudgetAmount ||
           currentDefaultDueDay !== originalDefaultDueDay ||
-          currentNotes !== originalNotes;
+          currentNotes !== originalNotes ||
+          fields.monthlyReportInput.checked !== category.includeInMonthlyReport;
 
         fields.saveButton.disabled = !dirty;
         fields.saveButton.title = dirty
@@ -678,6 +710,7 @@
           data.categoryBudgetIndex ||
           data.categoryDueDayIndex ||
           data.categoryNotesIndex ||
+          data.categoryMonthlyReportIndex ||
           ""
         );
       }
@@ -760,6 +793,7 @@
           budget,
           dueDay,
           notes,
+          includeInMonthlyReport: fields.monthlyReportInput.checked,
         };
       }
 

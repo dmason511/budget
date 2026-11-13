@@ -123,6 +123,14 @@ const migrations = [
       ADD COLUMN notes TEXT
     `,
   },
+  {
+    id: "016_add_category_include_in_monthly_report",
+    sql: `
+      ALTER TABLE categories
+      ADD COLUMN include_in_monthly_report INTEGER NOT NULL DEFAULT 1
+        CHECK (include_in_monthly_report IN (0, 1))
+    `,
+  },
 ];
 
 const dbByPath = new Map();

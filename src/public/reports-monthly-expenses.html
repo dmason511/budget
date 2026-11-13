@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budget Monthly Expenses</title>
+    <link rel="stylesheet" href="/common.css" />
+    <style>
+      .monthly-table-scroll {
+        max-height: 72vh;
+        max-height: 72dvh;
+        overflow: auto;
+        padding: 0;
+      }
+
+      .monthly-table-scroll:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+
+      .monthly-table {
+        margin-top: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        overflow: visible;
+      }
+
+      .monthly-table thead {
+        position: static;
+      }
+
+      .monthly-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        background: #edf3f8;
+      }
+
+      .monthly-table tbody th,
+      .monthly-table tfoot th {
+        position: static;
+      }
+
+      .monthly-table th:not(:first-child),
+      .monthly-table td:not(:first-child) {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .annual-total summary {
+        display: block;
+        cursor: pointer;
+        font-weight: 700;
+        color: #0000ee;
+        text-decoration: none;
+      }
+
+      .annual-total summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .annual-total summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+
+      .annual-total .average-note {
+        display: none;
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: var(--muted);
+        white-space: normal;
+      }
+
+      .annual-total[open] .average-note {
+        display: block;
+      }
+
+      @media (hover: hover) {
+        .annual-total:hover .average-note {
+          display: block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">Budget App</div>
+        <nav class="nav-links">
+          <a class="nav-link" href="/menu">Transactions</a>
+          <a class="nav-link" href="/categories">Categories</a>
+          <a class="nav-link" href="/admin" data-admin-only hidden>Admin</a>
+          <a class="nav-link active" href="/reports">Reports</a>
+          <button type="button" class="nav-link nav-link-button" data-auth-logout>
+            Sign Out
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1>Monthly Expenses</h1>
+      <p class="sub">
+        Monthly expenses for the selected year, with monthly and annual totals.
+        Only expense categories checked for Monthly Report on the Categories page
+        are included. Months without expenses show $0.00. Hover over an Annual
+        Total, or tap/click it, to see the monthly average. The bottom-right total
+        shows the average of monthly totals. Averages count only non-zero months.
+        Scroll within the table to view more categories; month headings stay visible.
+      </p>
+
+      <section class="card">
+        <div class="grid">
+          <label>
+            Year
+            <select id="yearSelect" disabled></select>
+          </label>
+        </div>
+        <div class="actions nowrap-actions">
+          <button id="loadBtn" disabled>Load Report</button>
+          <a class="button-link secondary-link" href="/categories">Manage Categories</a>
+          <a class="button-link secondary-link" href="/reports">Reports Home</a>
+        </div>
+        <div class="status" id="status" role="status"></div>
+      </section>
+
+      <section
+        class="card monthly-table-scroll"
+        style="margin-top: 16px"
+        tabindex="0"
+        aria-label="Scrollable monthly expense table"
+      >
+        <table class="monthly-table" aria-label="Monthly expenses by category">
+          <thead id="expensesHead"></thead>
+          <tbody id="expensesBody"></tbody>
+          <tfoot id="expensesFoot"></tfoot>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const yearSelect = document.getElementById("yearSelect");
+      const loadBtn = document.getElementById("loadBtn");
+      const statusEl = document.getElementById("status");
+      const expensesHead = document.getElementById("expensesHead");
+      const expensesBody = document.getElementById("expensesBody");
+      const expensesFoot = document.getElementById("expensesFoot");
+      const currencyFormatter = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+      });
+      const monthNames = Array.from({ length: 12 }, (_, index) =>
+        new Date(2000, index, 1).toLocaleString("en-US", { month: "short" }),
+      );
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? "#b91c1c" : "#0f766e";
+      }
+
+      function renderAnnualTotal(totalAmount, months) {
+        const count = months.filter((amount) => amount !== 0).length;
+        const average = count > 0 ? totalAmount / count : 0;
+        return `<details class="annual-total">
+          <summary>${currencyFormatter.format(totalAmount)}</summary>
+          <div class="average-note">
+            Monthly average: ${currencyFormatter.format(average)}
+            (${count} non-zero ${count === 1 ? "month" : "months"})
+          </div>
+        </details>`;
+      }
+
+      function renderReport(payload) {
+        expensesHead.innerHTML = `<tr>
+          <th scope="col">Category</th>
+          ${monthNames.map((month) => `<th scope="col">${month}</th>`).join("")}
+          <th scope="col">Annual Total</th>
+        </tr>`;
+        expensesBody.innerHTML = payload.data.length
+          ? payload.data.map((row) => `<tr>
+              <th scope="row">${escapeHtml(row.category === "uncategorized" ? "Uncategorized" : row.category)}</th>
+              ${row.months.map((amount) => `<td>${currencyFormatter.format(amount)}</td>`).join("")}
+              <td>${renderAnnualTotal(row.totalAmount, row.months)}</td>
+            </tr>`).join("")
+          : '<tr><td colspan="14">No expense categories selected. Check Monthly Report on the Categories page and save.</td></tr>';
+        expensesFoot.innerHTML = `<tr>
+          <th scope="row">Total</th>
+          ${payload.totals.months.map((amount) => `<td><strong>${currencyFormatter.format(amount)}</strong></td>`).join("")}
+          <td>${renderAnnualTotal(payload.totals.totalAmount, payload.totals.months)}</td>
+        </tr>`;
+      }
+
+      async function loadReport() {
+        yearSelect.disabled = true;
+        loadBtn.disabled = true;
+        expensesBody.innerHTML = "";
+        expensesFoot.innerHTML = "";
+        setStatus(`Loading monthly expenses for ${yearSelect.value}...`);
+        try {
+          const response = await fetch(
+            `/api/reports/monthly-expenses?year=${encodeURIComponent(yearSelect.value)}`,
+          );
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Unable to load monthly expenses");
+          }
+          renderReport(payload);
+          setStatus(`Loaded ${payload.count} expense category row(s) for ${payload.period.year}`);
+        } finally {
+          yearSelect.disabled = false;
+          loadBtn.disabled = false;
+        }
+      }
+
+      async function initialize() {
+        const response = await fetch("/api/reports/available-periods");
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Unable to load years");
+        }
+        const currentYear = new Date().getFullYear();
+        const years = [...new Set([currentYear, ...payload.data.years])]
+          .sort((a, b) => b - a);
+        for (const year of years) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          yearSelect.appendChild(option);
+        }
+        yearSelect.value = String(currentYear);
+        await loadReport();
+      }
+
+      async function withStatus(fn) {
+        try {
+          await fn();
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+        }
+      }
+
+      loadBtn.addEventListener("click", () => withStatus(loadReport));
+      yearSelect.addEventListener("change", () => withStatus(loadReport));
+      withStatus(initialize);
+    </script>
+    <script src="/auth-client.js"></script>
+  </body>
+</html>

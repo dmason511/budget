@@ -15,8 +15,9 @@
       .type-chip {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        justify-content: center;
         padding: 2px 8px;
+        min-width: 28px;
         border-radius: 999px;
         font-size: 0.72rem;
         font-weight: 700;
@@ -170,10 +171,10 @@
 
       function formatTypeChip(type) {
         if (type === "income") {
-          return '<span class="type-chip type-chip-income">&#8593; Income</span>';
+          return '<span class="type-chip type-chip-income" title="Income" aria-label="Income">&#8593;</span>';
         }
 
-        return '<span class="type-chip type-chip-expense">&#8595; Expense</span>';
+        return '<span class="type-chip type-chip-expense" title="Expense" aria-label="Expense">&#8595;</span>';
       }
 
       function getNeutralAmountClass(value) {

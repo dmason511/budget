@@ -88,6 +88,10 @@ app.get("/reports/trends-data", requirePageAuth, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "reports-trends-data.html"));
 });
 
+app.get("/reports/monthly-expenses", requirePageAuth, (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "reports-monthly-expenses.html"));
+});
+
 app.get("/reports/budget-comparison", requirePageAuth, (_req, res) => {
   res.sendFile(
     path.join(__dirname, "public", "reports-budget-comparison.html"),

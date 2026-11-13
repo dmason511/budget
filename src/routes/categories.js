@@ -98,6 +98,14 @@ function parseCategoryUpdateInput(body, existing) {
     return { error: "categoryType must be either income or expense" };
   }
 
+  const includeInMonthlyReport =
+    body && Object.hasOwn(body, "includeInMonthlyReport")
+      ? body.includeInMonthlyReport
+      : existing.include_in_monthly_report === 1;
+  if (typeof includeInMonthlyReport !== "boolean") {
+    return { error: "includeInMonthlyReport must be a boolean" };
+  }
+
   return {
     error: null,
     values: {
@@ -106,6 +114,7 @@ function parseCategoryUpdateInput(body, existing) {
       defaultDueDay,
       notes: notesResult.value,
       categoryType: categoryTypeResult.value,
+      includeInMonthlyReport,
     },
   };
 }
@@ -171,7 +180,7 @@ router.get("/", async (_req, res, next) => {
   try {
     const rows = await all(
       `
-      SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type
+      SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type, include_in_monthly_report
       FROM categories
       ORDER BY name COLLATE NOCASE ASC
       `,
@@ -189,6 +198,7 @@ router.get("/", async (_req, res, next) => {
         defaultDueDate: row.default_due_date,
         notes: row.notes,
         categoryType: row.category_type,
+        includeInMonthlyReport: row.include_in_monthly_report === 1,
       })),
     });
   } catch (error) {
@@ -244,6 +254,16 @@ router.post("/", async (req, res, next) => {
         .json({ error: "categoryType must be either income or expense" });
     }
 
+    const includeInMonthlyReport =
+      req.body && Object.hasOwn(req.body, "includeInMonthlyReport")
+        ? req.body.includeInMonthlyReport
+        : true;
+    if (typeof includeInMonthlyReport !== "boolean") {
+      return res
+        .status(400)
+        .json({ error: "includeInMonthlyReport must be a boolean" });
+    }
+
     const existing = await get(
       "SELECT id FROM categories WHERE lower(name) = lower(?)",
       [name],
@@ -262,10 +282,11 @@ router.post("/", async (req, res, next) => {
       defaultDueDate: null,
       notes: notesResult.value,
       categoryType: categoryTypeResult.value,
+      includeInMonthlyReport,
     };
 
     await run(
-      "INSERT INTO categories (id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO categories (id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type, include_in_monthly_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         category.id,
         category.name,
@@ -276,6 +297,7 @@ router.post("/", async (req, res, next) => {
         category.defaultDueDay,
         category.notes,
         category.categoryType,
+        category.includeInMonthlyReport ? 1 : 0,
       ],
     );
 
@@ -288,7 +310,7 @@ router.post("/", async (req, res, next) => {
 router.put("/:id", async (req, res, next) => {
   try {
     const existing = await get(
-      "SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type FROM categories WHERE id = ?",
+      "SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type, include_in_monthly_report FROM categories WHERE id = ?",
       [req.params.id],
     );
 
@@ -304,6 +326,11 @@ router.put("/:id", async (req, res, next) => {
       return res.status(400).json({ error: "name is required" });
     }
 
+    const parsedUpdate = parseCategoryUpdateInput(req.body, existing);
+    if (parsedUpdate.error) {
+      return res.status(400).json({ error: parsedUpdate.error });
+    }
+
     const shouldRenameTransactions = req.body?.renameTransactions === true;
     const renameResult = await processCategoryRename(
       existing,
@@ -314,16 +341,17 @@ router.put("/:id", async (req, res, next) => {
       return res.status(renameResult.errorStatus).json(renameResult.payload);
     }
 
-    const parsedUpdate = parseCategoryUpdateInput(req.body, existing);
-    if (parsedUpdate.error) {
-      return res.status(400).json({ error: parsedUpdate.error });
-    }
-
-    const { defaultAmount, budgetAmount, defaultDueDay, notes, categoryType } =
-      parsedUpdate.values;
+    const {
+      defaultAmount,
+      budgetAmount,
+      defaultDueDay,
+      notes,
+      categoryType,
+      includeInMonthlyReport,
+    } = parsedUpdate.values;
 
     await run(
-      "UPDATE categories SET name = ?, default_amount = ?, budget_amount = ?, default_due_day = ?, default_due_date = NULL, notes = ?, category_type = ? WHERE id = ?",
+      "UPDATE categories SET name = ?, default_amount = ?, budget_amount = ?, default_due_day = ?, default_due_date = NULL, notes = ?, category_type = ?, include_in_monthly_report = ? WHERE id = ?",
       [
         requestedName,
         defaultAmount,
@@ -331,6 +359,7 @@ router.put("/:id", async (req, res, next) => {
         defaultDueDay,
         notes,
         categoryType,
+        includeInMonthlyReport ? 1 : 0,
         existing.id,
       ],
     );
@@ -346,6 +375,7 @@ router.put("/:id", async (req, res, next) => {
         defaultDueDate: null,
         notes,
         categoryType,
+        includeInMonthlyReport,
       },
       renamedTransactionCount: renameResult.renamedTransactionCount,
     });
@@ -357,7 +387,7 @@ router.put("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const existing = await get(
-      "SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type FROM categories WHERE id = ?",
+      "SELECT id, name, created_at, default_amount, budget_amount, default_due_date, default_due_day, notes, category_type, include_in_monthly_report FROM categories WHERE id = ?",
       [req.params.id],
     );
 
@@ -392,6 +422,7 @@ router.delete("/:id", async (req, res, next) => {
         defaultDueDate: existing.default_due_date,
         notes: existing.notes,
         categoryType: existing.category_type,
+        includeInMonthlyReport: existing.include_in_monthly_report === 1,
       },
     });
   } catch (error) {
